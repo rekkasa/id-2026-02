@@ -35,17 +35,30 @@ testthat::test_that(
     )
 
     testthat::expect_equal(row_counts$patients, 1L)
-    testthat::expect_equal(row_counts$studySessions, 2L)
-    testthat::expect_equal(row_counts$physiologicalAssessments, 4L)
-    testthat::expect_equal(row_counts$sleepAssessments, 2L)
+    testthat::expect_equal(row_counts$study_sessions, 2L)
+    testthat::expect_equal(row_counts$physiological_assessments, 4L)
+    testthat::expect_equal(row_counts$sleep_assessments, 2L)
 
+    table_names <- DBI::dbListTables(conn = connection)
     table_columns <- purrr::map(
-      .x = DBI::dbListTables(conn = connection),
+      .x = table_names,
       .f = function(table_name) {
         DBI::dbListFields(conn = connection, name = table_name)
       }
     ) |>
       unlist(use.names = FALSE)
+    testthat::expect_true(
+      all(stringr::str_detect(
+        string = table_names,
+        pattern = "^[a-z][a-z0-9_]*$"
+      ))
+    )
+    testthat::expect_true(
+      all(stringr::str_detect(
+        string = table_columns,
+        pattern = "^[a-z][a-z0-9_]*$"
+      ))
+    )
     testthat::expect_false(
       any(stringr::str_detect(
         string = table_columns,
@@ -56,9 +69,9 @@ testthat::test_that(
     fraction_value <- DBI::dbGetQuery(
       conn = connection,
       statement = stringr::str_c(
-        'SELECT "fractionInspiredOxygen"',
-        'FROM "physiologicalAssessments"',
-        'WHERE "assessmentPhase" = \'afterPhysiotherapy\'',
+        'SELECT "fraction_inspired_oxygen"',
+        'FROM "physiological_assessments"',
+        'WHERE "assessment_phase" = \'afterPhysiotherapy\'',
         collapse = " "
       )
     )
