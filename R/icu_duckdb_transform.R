@@ -580,13 +580,8 @@ validate_workbook_layout <- function(input_path) {
   layout
 }
 
-parse_ddmmyyyy <- function(
-    values,
-    column_name,
-    source_sheet,
-    source_row_numbers) {
+parse_dmy_text <- function(values) {
   normalized_values <- normalize_text(values)
-  missing_values <- is_missing_text(normalized_values)
   date_components <- stringr::str_match(
     string = normalized_values,
     pattern = "^([0-9]{1,2})/([0-9]{1,2})/([0-9]{2}|[0-9]{4})$"
@@ -619,12 +614,27 @@ parse_ddmmyyyy <- function(
     x = rep(x = NA_character_, times = length(values)),
     format = "%d/%m/%Y"
   )
-  parseable_values <- !missing_values & matches_format
-  parsed_values[parseable_values] <- as.Date(
-    x = canonical_values[parseable_values],
+  parsed_values[matches_format] <- as.Date(
+    x = canonical_values[matches_format],
     format = "%d/%m/%Y"
   )
-  invalid_values <- !missing_values & (!matches_format | is.na(parsed_values))
+
+  list(
+    dates = parsed_values,
+    matches_format = matches_format
+  )
+}
+
+parse_ddmmyyyy <- function(
+    values,
+    column_name,
+    source_sheet,
+    source_row_numbers) {
+  missing_values <- is_missing_text(values)
+  parsed_dmy <- parse_dmy_text(values = values)
+  invalid_values <- !missing_values & (
+    !parsed_dmy$matches_format | is.na(parsed_dmy$dates)
+  )
 
   if (any(invalid_values)) {
     invalid_rows <- source_row_numbers[invalid_values]
@@ -638,7 +648,155 @@ parse_ddmmyyyy <- function(
     )
   }
 
-  parsed_values
+  parsed_dmy$dates
+}
+
+is_missing_source_value <- function(value) {
+  if (length(value) == 0L || all(is.na(value))) {
+    return(TRUE)
+  }
+
+  if (is.character(value)) {
+    return(all(is_missing_text(value)))
+  }
+
+  FALSE
+}
+
+is_missing_source_values <- function(values) {
+  if (is.list(values)) {
+    return(purrr::map_lgl(
+      .x = values,
+      .f = is_missing_source_value
+    ))
+  }
+
+  is_missing_text(values)
+}
+
+parse_excel_serial <- function(serial, raw_kind) {
+  if (!is.finite(serial) || serial < 20000 || serial > 80000) {
+    return(list(
+      date = as.Date(x = NA),
+      raw_kind = stringr::str_c(raw_kind, "_out_of_range"),
+      valid = FALSE
+    ))
+  }
+
+  list(
+    date = as.Date(
+      x = floor(serial),
+      origin = "1899-12-30"
+    ),
+    raw_kind = raw_kind,
+    valid = TRUE
+  )
+}
+
+parse_date_cell <- function(value) {
+  if (is_missing_source_value(value)) {
+    return(list(
+      date = as.Date(x = NA),
+      raw_kind = "blank",
+      valid = TRUE
+    ))
+  }
+
+  if (inherits(value, what = "Date")) {
+    return(list(
+      date = as.Date(value),
+      raw_kind = "excel_date",
+      valid = TRUE
+    ))
+  }
+
+  if (inherits(value, what = "POSIXt")) {
+    return(list(
+      date = as.Date(value),
+      raw_kind = "excel_datetime",
+      valid = TRUE
+    ))
+  }
+
+  if (is.numeric(value)) {
+    return(parse_excel_serial(
+      serial = value,
+      raw_kind = "numeric_serial"
+    ))
+  }
+
+  if (!is.character(value)) {
+    return(list(
+      date = as.Date(x = NA),
+      raw_kind = "unsupported_type",
+      valid = FALSE
+    ))
+  }
+
+  normalized_value <- normalize_text(value)
+  if (stringr::str_detect(
+    string = normalized_value,
+    pattern = "^[0-9]+(?:\\.[0-9]+)?$"
+  )) {
+    return(parse_excel_serial(
+      serial = as.numeric(normalized_value),
+      raw_kind = "text_serial"
+    ))
+  }
+
+  parsed_dmy <- parse_dmy_text(values = normalized_value)
+  valid_date <- parsed_dmy$matches_format && !is.na(parsed_dmy$dates)
+  list(
+    date = parsed_dmy$dates,
+    raw_kind = if (valid_date) "text_dmy" else "unsupported_text",
+    valid = valid_date
+  )
+}
+
+parse_date_column <- function(
+    values,
+    column_name,
+    source_sheet,
+    source_row_numbers) {
+  parsed_cells <- purrr::map(
+    .x = values,
+    .f = parse_date_cell
+  )
+  valid_values <- purrr::map_lgl(
+    .x = parsed_cells,
+    .f = function(parsed_cell) parsed_cell$valid
+  )
+
+  if (any(!valid_values)) {
+    invalid_rows <- source_row_numbers[!valid_values]
+    invalid_kinds <- purrr::map_chr(
+      .x = parsed_cells[!valid_values],
+      .f = function(parsed_cell) parsed_cell$raw_kind
+    ) |>
+      tibble::tibble(raw_kind = _) |>
+      dplyr::count(.data$raw_kind, name = "row_count") |>
+      dplyr::transmute(
+        summary = stringr::str_c(.data$raw_kind, "=", .data$row_count)
+      ) |>
+      dplyr::pull(var = "summary") |>
+      stringr::str_c(collapse = ", ")
+    rlang::abort(
+      message = glue::glue(
+        "Worksheet '{source_sheet}' contains invalid date values in ",
+        "'{column_name}' at Excel row(s): ",
+        "{stringr::str_c(invalid_rows, collapse = ', ')} ",
+        "(types: {invalid_kinds})."
+      )
+    )
+  }
+
+  as.Date(
+    x = purrr::map_dbl(
+      .x = parsed_cells,
+      .f = function(parsed_cell) as.numeric(parsed_cell$date)
+    ),
+    origin = "1970-01-01"
+  )
 }
 
 parse_date_columns <- function(source_rows, source_sheet) {
@@ -648,7 +806,7 @@ parse_date_columns <- function(source_rows, source_sheet) {
   )]
 
   for (column_name in date_columns) {
-    source_rows[[column_name]] <- parse_ddmmyyyy(
+    source_rows[[column_name]] <- parse_date_column(
       values = source_rows[[column_name]],
       column_name = column_name,
       source_sheet = source_sheet,
@@ -666,6 +824,15 @@ read_source_rows <- function(input_path, sheet_layout) {
   )
   column_types <- rep(x = "text", times = sheet_layout$column_count)
   column_types[[2L]] <- "skip"
+  source_column_positions <- setdiff(
+    x = seq_len(sheet_layout$column_count),
+    y = 2L
+  )
+  date_column_positions <- source_column_positions[stringr::str_detect(
+    string = sheet_layout$internal_names,
+    pattern = "date"
+  )]
+  column_types[date_column_positions] <- "list"
 
   source_rows <- readxl::read_excel(
     path = input_path,
@@ -702,7 +869,7 @@ read_source_rows <- function(input_path, sheet_layout) {
     dplyr::filter(
       dplyr::if_any(
         .cols = dplyr::all_of(sheet_layout$internal_names),
-        .fns = function(values) !is_missing_text(values)
+        .fns = function(values) !is_missing_source_values(values)
       )
     ) |>
     dplyr::mutate(

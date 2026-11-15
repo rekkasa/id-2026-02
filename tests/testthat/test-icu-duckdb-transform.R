@@ -33,6 +33,19 @@ testthat::test_that(
 )
 
 testthat::test_that(
+  desc = "the date parser rejects implausible text serials",
+  code = {
+    parsed_cell <- parse_date_cell(value = "25")
+
+    testthat::expect_false(parsed_cell$valid)
+    testthat::expect_identical(
+      parsed_cell$raw_kind,
+      "text_serial_out_of_range"
+    )
+  }
+)
+
+testthat::test_that(
   desc = "the transformer creates a paired name-free DuckDB database",
   code = {
     workbook_path <- fs::file_temp(ext = ".xlsx")
@@ -341,6 +354,109 @@ testthat::test_that(
 )
 
 testthat::test_that(
+  desc = "the transformer converts Excel date cells and serials",
+  code = {
+    workbook_path <- fs::file_temp(ext = ".xlsx")
+    database_path <- fs::file_temp(ext = ".duckdb")
+    on.exit(
+      expr = {
+        paths <- c(workbook_path, database_path)
+        existing_paths <- paths[fs::file_exists(path = paths)]
+        if (length(existing_paths) > 0L) {
+          fs::file_delete(path = existing_paths)
+        }
+      },
+      add = TRUE
+    )
+    write_synthetic_workbook(workbook_path = workbook_path)
+
+    admission_date <- as.Date(x = "2025-02-01")
+    ventilation_date <- as.Date(x = "2025-03-02")
+    discharge_date <- as.Date(x = "2025-04-03")
+    connection_datetime <- as.POSIXct(
+      x = "2025-05-04 14:30:00",
+      tz = "UTC"
+    )
+    admission_serial <- as.numeric(
+      admission_date - as.Date(x = "1899-12-30")
+    )
+    ventilation_serial <- as.numeric(
+      ventilation_date - as.Date(x = "1899-12-30")
+    )
+    overwrite_excel_cell(
+      workbook_path = workbook_path,
+      sheet_name = "crf data",
+      value = stringr::str_c(admission_serial, ".5"),
+      column_number = 9L,
+      row_number = 2L
+    )
+    overwrite_excel_cell(
+      workbook_path = workbook_path,
+      sheet_name = "crf data",
+      value = ventilation_serial + 0.5,
+      column_number = 21L,
+      row_number = 2L
+    )
+    overwrite_excel_cell(
+      workbook_path = workbook_path,
+      sheet_name = "crf data",
+      value = discharge_date,
+      column_number = 26L,
+      row_number = 2L
+    )
+    overwrite_excel_cell(
+      workbook_path = workbook_path,
+      sheet_name = "ΜΕ ΦΥΣΙΚΟΘΕΡΑΠΕΙΑ",
+      value = connection_datetime,
+      column_number = 3L,
+      row_number = 3L
+    )
+
+    transform_icu_workbook(
+      input_path = workbook_path,
+      database_path = database_path
+    )
+    connection <- DBI::dbConnect(
+      drv = duckdb::duckdb(),
+      dbdir = database_path,
+      read_only = TRUE
+    )
+    on.exit(
+      expr = DBI::dbDisconnect(conn = connection, shutdown = TRUE),
+      add = TRUE
+    )
+
+    admission_dates <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT "admission_date", "mechanical_ventilation_start_date",',
+        '"icu_discharge_date" FROM "icu_admissions"'
+      )
+    )
+    connection_dates <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT "connection_date" FROM "study_sessions"',
+        'WHERE "condition" = \'withPhysiotherapy\''
+      )
+    )
+    testthat::expect_identical(admission_dates$admission_date, admission_date)
+    testthat::expect_identical(
+      admission_dates$mechanical_ventilation_start_date,
+      ventilation_date
+    )
+    testthat::expect_identical(
+      admission_dates$icu_discharge_date,
+      discharge_date
+    )
+    testthat::expect_identical(
+      connection_dates$connection_date,
+      as.Date(x = connection_datetime)
+    )
+  }
+)
+
+testthat::test_that(
   desc = "the transformer rejects malformed and impossible dates",
   code = {
     workbook_path <- fs::file_temp(ext = ".xlsx")
@@ -373,8 +489,8 @@ testthat::test_that(
         database_path = database_path
       ),
       regexp = stringr::str_c(
-        "invalid d/m/yyyy values with a 2- or 4-digit year in ",
-        "'admission_date' at Excel row\\(s\\): 2, 3, 4, 5, 6"
+        "invalid date values in 'admission_date' at Excel row\\(s\\): ",
+        "2, 3, 4, 5, 6 \\(types: unsupported_text=5\\)"
       )
     )
   }

@@ -16,6 +16,28 @@ write_excel_row <- function(workbook, sheet_name, row_values, row_number) {
   )
 }
 
+overwrite_excel_cell <- function(
+    workbook_path,
+    sheet_name,
+    value,
+    column_number,
+    row_number) {
+  workbook <- openxlsx::loadWorkbook(file = workbook_path)
+  openxlsx::writeData(
+    wb = workbook,
+    sheet = sheet_name,
+    x = value,
+    startCol = column_number,
+    startRow = row_number,
+    colNames = FALSE
+  )
+  openxlsx::saveWorkbook(
+    wb = workbook,
+    file = workbook_path,
+    overwrite = TRUE
+  )
+}
+
 make_source_row <- function(column_count, patient_id) {
   values <- stringr::str_c("value_", seq_len(column_count))
   values[[1L]] <- patient_id
