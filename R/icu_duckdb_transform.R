@@ -458,8 +458,9 @@ database_column_names <- list(
   ),
   physiological_assessments = c(
     assessment_id = "assessment_id",
-    session_id = "session_id",
-    assessment_phase = "assessment_phase",
+    patient_id = "patient_id",
+    assessment = "assessment",
+    phase = "phase",
     pressure_support = "pressure_support",
     positive_end_expiratory_pressure = "positive_end_expiratory_pressure",
     tidal_volume = "tidal_volume",
@@ -1949,7 +1950,7 @@ build_session_tables <- function(
   )
 }
 
-build_assessment_rows <- function(rows, phase, column_map) {
+build_assessment_rows <- function(rows, assessment, phase, column_map) {
   measurement_values <- purrr::imap(
     .x = column_map,
     .f = function(source_column, target_column) {
@@ -1963,9 +1964,9 @@ build_assessment_rows <- function(rows, phase, column_map) {
 
   dplyr::transmute(
     rows,
-    assessment_id = stringr::str_c(.data$session_id, "::", .env$phase),
-    session_id = .data$session_id,
-    assessment_phase = .env$phase,
+    patient_id = .data$patient_id,
+    assessment = .env$assessment,
+    phase = .env$phase,
     !!!measurement_values,
     source_row_number = .data$source_row_number
   )
@@ -2066,25 +2067,33 @@ build_physiological_assessments <- function(
   dplyr::bind_rows(
     build_assessment_rows(
       rows = physiotherapy_rows,
-      phase = "beforePhysiotherapy",
+      assessment = "with_physiotherapy",
+      phase = "before_physiotherapy",
       column_map = physiotherapy_before_map
     ),
     build_assessment_rows(
       rows = physiotherapy_rows,
-      phase = "afterPhysiotherapy",
+      assessment = "with_physiotherapy",
+      phase = "after_physiotherapy",
       column_map = physiotherapy_after_map
     ),
     build_assessment_rows(
       rows = control_rows,
-      phase = "recordingStart",
+      assessment = "without_physiotherapy",
+      phase = "recording_start",
       column_map = control_start_map
     ),
     build_assessment_rows(
       rows = control_rows,
-      phase = "recordingEnd",
+      assessment = "without_physiotherapy",
+      phase = "recording_end",
       column_map = control_end_map
     )
-  )
+  ) |>
+    dplyr::mutate(
+      assessment_id = as.integer(dplyr::row_number()),
+      .before = 1L
+    )
 }
 
 build_sleep_rows <- function(rows, condition, column_map) {
@@ -2183,53 +2192,50 @@ assert_assessment_phases <- function(
     physiological_assessments,
     study_sessions) {
   phase_expectations <- tibble::tibble(
-    condition = c(
-      "withPhysiotherapy",
-      "withPhysiotherapy",
-      "withoutPhysiotherapy",
-      "withoutPhysiotherapy"
+    assessment = c(
+      "with_physiotherapy",
+      "with_physiotherapy",
+      "without_physiotherapy",
+      "without_physiotherapy"
     ),
-    assessment_phase = c(
-      "beforePhysiotherapy",
-      "afterPhysiotherapy",
-      "recordingStart",
-      "recordingEnd"
+    phase = c(
+      "before_physiotherapy",
+      "after_physiotherapy",
+      "recording_start",
+      "recording_end"
     )
   )
-  observed_phases <- physiological_assessments |>
-    dplyr::inner_join(
-      y = study_sessions |>
-        dplyr::select("session_id", "condition"),
-      by = "session_id"
+  expected_phases <- study_sessions |>
+    dplyr::transmute(
+      patient_id = .data$patient_id,
+      assessment = dplyr::recode(
+        .data$condition,
+        withPhysiotherapy = "with_physiotherapy",
+        withoutPhysiotherapy = "without_physiotherapy"
+      )
     ) |>
-    dplyr::select("session_id", "condition", "assessment_phase")
+    dplyr::inner_join(
+      y = phase_expectations,
+      by = "assessment",
+      relationship = "many-to-many"
+    )
+  observed_phases <- physiological_assessments |>
+    dplyr::select("patient_id", "assessment", "phase")
   unexpected_phases <- dplyr::anti_join(
     x = observed_phases,
-    y = phase_expectations,
-    by = c("condition", "assessment_phase")
+    y = expected_phases,
+    by = c("patient_id", "assessment", "phase")
   )
   missing_phases <- dplyr::anti_join(
-    x = study_sessions |>
-      dplyr::select("session_id", "condition") |>
-      tidyr::crossing(
-        assessment_phase = c(
-          "beforePhysiotherapy",
-          "afterPhysiotherapy",
-          "recordingStart",
-          "recordingEnd"
-        )
-      ) |>
-      dplyr::inner_join(
-        y = phase_expectations,
-        by = c("condition", "assessment_phase")
-      ),
+    x = expected_phases,
     y = observed_phases,
-    by = c("session_id", "condition", "assessment_phase")
+    by = c("patient_id", "assessment", "phase")
   )
   duplicate_phases <- observed_phases |>
     dplyr::count(
-      .data$session_id,
-      .data$assessment_phase,
+      .data$patient_id,
+      .data$assessment,
+      .data$phase,
       name = "assessment_count"
     ) |>
     dplyr::filter(.data$assessment_count != 1L) |>
@@ -2238,7 +2244,7 @@ assert_assessment_phases <- function(
   if (nrow(unexpected_phases) > 0L || nrow(missing_phases) > 0L ||
       duplicate_phases > 0L) {
     error_message <- stringr::str_c(
-      "Each session must contain exactly its expected ",
+      "Each patient must contain exactly its expected ",
       "assessment phases."
     )
     rlang::abort(
@@ -2299,7 +2305,11 @@ assert_raw_value_types <- function(tables) {
     purrr::imap(
       .f = function(data, table_name) {
         column_names <- names(data)
-        allowed_integer <- column_names == "source_row_number"
+        allowed_integer <- column_names == "source_row_number" |
+          (
+            table_name == "physiological_assessments" &
+              column_names == "assessment_id"
+          )
         is_date_column <- stringr::str_detect(
           string = column_names,
           pattern = "date"
@@ -2434,14 +2444,22 @@ create_duckdb_schema <- function(connection) {
       FOREIGN KEY ("patient_id") REFERENCES "patients" ("patient_id")
     )',
     'CREATE TABLE "physiological_assessments" (
-      "assessment_id" VARCHAR PRIMARY KEY,
-      "session_id" VARCHAR NOT NULL,
-      "assessment_phase" VARCHAR NOT NULL CHECK (
-        "assessment_phase" IN (
-          \'beforePhysiotherapy\',
-          \'afterPhysiotherapy\',
-          \'recordingStart\',
-          \'recordingEnd\'
+      "assessment_id" INTEGER PRIMARY KEY,
+      "patient_id" VARCHAR NOT NULL,
+      "assessment" VARCHAR NOT NULL CHECK (
+        "assessment" IN (
+          \'with_physiotherapy\',
+          \'without_physiotherapy\'
+        )
+      ),
+      "phase" VARCHAR NOT NULL,
+      CHECK (
+        (
+          "assessment" = \'with_physiotherapy\' AND
+          "phase" IN (\'before_physiotherapy\', \'after_physiotherapy\')
+        ) OR (
+          "assessment" = \'without_physiotherapy\' AND
+          "phase" IN (\'recording_start\', \'recording_end\')
         )
       ),
       "pressure_support" VARCHAR,
@@ -2463,8 +2481,8 @@ create_duckdb_schema <- function(connection) {
       "expiratory_sensitivity" VARCHAR,
       "rising_time" VARCHAR,
       "source_row_number" INTEGER NOT NULL,
-      UNIQUE ("session_id", "assessment_phase"),
-      FOREIGN KEY ("session_id") REFERENCES "study_sessions" ("session_id")
+      UNIQUE ("patient_id", "assessment", "phase"),
+      FOREIGN KEY ("patient_id") REFERENCES "patients" ("patient_id")
     )',
     'CREATE TABLE "sleep_assessments" (
       "sleep_assessment_id" VARCHAR PRIMARY KEY,

@@ -503,7 +503,7 @@ testthat::test_that(
       statement = stringr::str_c(
         'SELECT "fraction_inspired_oxygen"',
         'FROM "physiological_assessments"',
-        'WHERE "assessment_phase" = \'afterPhysiotherapy\'',
+        'WHERE "phase" = \'after_physiotherapy\'',
         collapse = " "
       )
     )
@@ -513,19 +513,21 @@ testthat::test_that(
       conn = connection,
       name = "physiological_assessments"
     )
-    blood_pressure_values <- DBI::dbGetQuery(
+    physiological_assessment_values <- DBI::dbGetQuery(
       conn = connection,
       statement = stringr::str_c(
-        'SELECT "assessment_phase", "blood_pressure_diastolic",',
+        'SELECT "assessment_id", "patient_id", "assessment", "phase",',
+        '"blood_pressure_diastolic",',
         '"blood_pressure_systolic" FROM "physiological_assessments"',
-        'ORDER BY "assessment_phase"',
+        'ORDER BY "assessment_id"',
         sep = " "
       )
     )
-    blood_pressure_types <- DBI::dbGetQuery(
+    physiological_assessment_types <- DBI::dbGetQuery(
       conn = connection,
       statement = stringr::str_c(
-        'SELECT typeof("blood_pressure_diastolic")',
+        'SELECT typeof("assessment_id") AS "assessment_id_type",',
+        'typeof("blood_pressure_diastolic")',
         'AS "blood_pressure_diastolic_type",',
         'typeof("blood_pressure_systolic")',
         'AS "blood_pressure_systolic_type"',
@@ -536,30 +538,55 @@ testthat::test_that(
     testthat::expect_false(
       "blood_pressure" %in% physiological_assessment_columns
     )
+    testthat::expect_false("session_id" %in% physiological_assessment_columns)
+    testthat::expect_false(
+      "assessment_phase" %in% physiological_assessment_columns
+    )
     testthat::expect_true(all(c(
+      "assessment_id",
+      "patient_id",
+      "assessment",
+      "phase",
       "blood_pressure_diastolic",
       "blood_pressure_systolic"
     ) %in% physiological_assessment_columns))
+    testthat::expect_equal(
+      physiological_assessment_values$assessment_id,
+      1L:4L
+    )
     testthat::expect_identical(
-      blood_pressure_values$assessment_phase,
+      physiological_assessment_values$patient_id,
+      rep(x = "1", times = 4L)
+    )
+    testthat::expect_identical(
+      physiological_assessment_values$assessment,
       c(
-        "afterPhysiotherapy",
-        "beforePhysiotherapy",
-        "recordingEnd",
-        "recordingStart"
+        "with_physiotherapy",
+        "with_physiotherapy",
+        "without_physiotherapy",
+        "without_physiotherapy"
       )
     )
     testthat::expect_identical(
-      blood_pressure_values$blood_pressure_diastolic,
-      c(72, 70, 70, 68)
+      physiological_assessment_values$phase,
+      c(
+        "before_physiotherapy",
+        "after_physiotherapy",
+        "recording_start",
+        "recording_end"
+      )
     )
     testthat::expect_identical(
-      blood_pressure_values$blood_pressure_systolic,
-      c(118, 120, 115, 116)
+      physiological_assessment_values$blood_pressure_diastolic,
+      c(70, 72, 68, 70)
     )
     testthat::expect_identical(
-      as.character(blood_pressure_types[1L, ]),
-      c("DOUBLE", "DOUBLE")
+      physiological_assessment_values$blood_pressure_systolic,
+      c(120, 118, 116, 115)
+    )
+    testthat::expect_identical(
+      as.character(physiological_assessment_types[1L, ]),
+      c("INTEGER", "DOUBLE", "DOUBLE")
     )
 
     patient_values <- DBI::dbGetQuery(
