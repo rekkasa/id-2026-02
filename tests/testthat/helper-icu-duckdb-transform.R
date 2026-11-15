@@ -20,10 +20,7 @@ make_source_row <- function(column_count, source_record_number, patient_id) {
   values <- stringr::str_c("value_", seq_len(column_count))
   values[[1L]] <- source_record_number
   values[[2L]] <- "Synthetic Name"
-
-  if (!is.na(patient_id)) {
-    values[[8L]] <- patient_id
-  }
+  values[[8L]] <- patient_id
 
   values
 }
@@ -32,7 +29,9 @@ write_synthetic_workbook <- function(
     workbook_path,
     include_control = TRUE,
     duplicate_physiotherapy = FALSE,
-    invalid_physio_header = FALSE) {
+    invalid_physio_header = FALSE,
+    missing_crf_patient_id = FALSE,
+    physiotherapy_source_record_number = "1") {
   layout <- workbook_layout()
   workbook <- openxlsx::createWorkbook()
 
@@ -73,7 +72,7 @@ write_synthetic_workbook <- function(
   crf_row <- make_source_row(
     column_count = layout$crf$column_count,
     source_record_number = "1",
-    patient_id = "EAMA-001"
+    patient_id = if (missing_crf_patient_id) NA_character_ else "EAMA-001"
   )
   write_excel_row(
     workbook = workbook,
@@ -84,7 +83,7 @@ write_synthetic_workbook <- function(
 
   physiotherapy_row <- make_source_row(
     column_count = layout$physiotherapy$column_count,
-    source_record_number = "1",
+    source_record_number = physiotherapy_source_record_number,
     patient_id = NA_character_
   )
   physiotherapy_row[[3L]] <- "2026-01-01"

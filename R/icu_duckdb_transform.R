@@ -616,26 +616,84 @@ read_source_rows <- function(input_path, sheet_layout) {
   names(source_rows) <- sheet_layout$internal_names
 
   source_rows |>
+    dplyr::mutate(
+      source_row_number = as.integer(dplyr::row_number()) +
+        sheet_layout$first_data_row - 1L
+    ) |>
     dplyr::filter(
       dplyr::if_any(
-        .cols = dplyr::everything(),
+        .cols = dplyr::all_of(sheet_layout$internal_names),
         .fns = function(values) !is_missing_text(values)
       )
     ) |>
     dplyr::mutate(
-      source_row_number = as.integer(dplyr::row_number()) +
-        sheet_layout$first_data_row - 1L
+      source_sheet = sheet_layout$sheet_name
     )
 }
 
-assert_non_missing <- function(data, column_name, context) {
-  missing_count <- data |>
-    dplyr::summarise(
-      missing_count = sum(is_missing_text(.data[[column_name]]))
-    ) |>
-    dplyr::pull(var = "missing_count")
+write_diagnostic_log <- function(
+    diagnostic_log_path,
+    event,
+    rows,
+    missing_column) {
+  if (is.null(diagnostic_log_path) || length(diagnostic_log_path) != 1L ||
+      is_missing_text(diagnostic_log_path)) {
+    return(invisible(NULL))
+  }
+
+  diagnostic_rows <- rows |>
+    dplyr::transmute(
+      event = event,
+      sheet = .data$source_sheet,
+      excel_row = .data$source_row_number,
+      missing_column = missing_column
+    )
+
+  tryCatch(
+    expr = {
+      log_directory <- fs::path_dir(path = diagnostic_log_path)
+      if (!fs::dir_exists(path = log_directory)) {
+        fs::dir_create(path = log_directory, recurse = TRUE)
+      }
+
+      log_exists <- fs::file_exists(path = diagnostic_log_path)
+      utils::write.table(
+        x = diagnostic_rows,
+        file = diagnostic_log_path,
+        append = log_exists,
+        col.names = !log_exists,
+        row.names = FALSE,
+        sep = ",",
+        quote = TRUE,
+        fileEncoding = "UTF-8"
+      )
+    },
+    error = function(error) invisible(NULL)
+  )
+
+  invisible(NULL)
+}
+
+assert_non_missing <- function(
+    data,
+    column_name,
+    context,
+    diagnostic_log_path = NULL,
+    diagnostic_event = NULL) {
+  missing_rows <- data |>
+    dplyr::filter(is_missing_text(.data[[column_name]]))
+  missing_count <- nrow(missing_rows)
 
   if (missing_count > 0L) {
+    if (!is.null(diagnostic_event)) {
+      write_diagnostic_log(
+        diagnostic_log_path = diagnostic_log_path,
+        event = diagnostic_event,
+        rows = missing_rows,
+        missing_column = column_name
+      )
+    }
+
     rlang::abort(
       message = glue::glue(
         "{context} contains {missing_count} missing {column_name} value(s)."
@@ -668,7 +726,7 @@ normalize_record_key <- function(values) {
     normalize_text()
 }
 
-build_crf_tables <- function(crf_rows) {
+build_crf_tables <- function(crf_rows, diagnostic_log_path = NULL) {
   if (nrow(crf_rows) == 0L) {
     rlang::abort(message = "The CRF worksheet contains no data rows.")
   }
@@ -676,7 +734,9 @@ build_crf_tables <- function(crf_rows) {
   assert_non_missing(
     data = crf_rows,
     column_name = "patient_id",
-    context = "The CRF worksheet"
+    context = "The CRF worksheet",
+    diagnostic_log_path = diagnostic_log_path,
+    diagnostic_event = "missing_patient_id_in_crf"
   )
   assert_unique(
     data = crf_rows,
@@ -766,7 +826,11 @@ build_crf_tables <- function(crf_rows) {
   )
 }
 
-link_patient_rows <- function(rows, patient_index, source_description) {
+link_patient_rows <- function(
+    rows,
+    patient_index,
+    source_description,
+    diagnostic_log_path = NULL) {
   linked_rows <- rows |>
     dplyr::mutate(
       record_key = normalize_record_key(.data$source_record_number)
@@ -779,7 +843,9 @@ link_patient_rows <- function(rows, patient_index, source_description) {
   assert_non_missing(
     data = linked_rows,
     column_name = "patient_id",
-    context = source_description
+    context = source_description,
+    diagnostic_log_path = diagnostic_log_path,
+    diagnostic_event = "unmatched_patient_record"
   )
 
   linked_rows
@@ -798,11 +864,13 @@ add_session_details <- function(rows, condition, source_sheet) {
 build_session_tables <- function(
     physiotherapy_rows,
     control_rows,
-    patient_index) {
+    patient_index,
+    diagnostic_log_path = NULL) {
   physiotherapy_linked <- physiotherapy_rows |>
     link_patient_rows(
       patient_index = patient_index,
-      source_description = "The physiotherapy worksheet"
+      source_description = "The physiotherapy worksheet",
+      diagnostic_log_path = diagnostic_log_path
     ) |>
     add_session_details(
       condition = "withPhysiotherapy",
@@ -811,7 +879,8 @@ build_session_tables <- function(
   control_linked <- control_rows |>
     link_patient_rows(
       patient_index = patient_index,
-      source_description = "The no-physiotherapy worksheet"
+      source_description = "The no-physiotherapy worksheet",
+      diagnostic_log_path = diagnostic_log_path
     ) |>
     dplyr::mutate(connection_date = NA_character_) |>
     add_session_details(
@@ -1031,11 +1100,15 @@ build_sleep_rows <- function(rows, condition, column_map) {
   )
 }
 
-build_sleep_assessments <- function(sleep_rows, patient_index) {
+build_sleep_assessments <- function(
+    sleep_rows,
+    patient_index,
+    diagnostic_log_path = NULL) {
   sleep_linked <- sleep_rows |>
     link_patient_rows(
       patient_index = patient_index,
-      source_description = "The sleep worksheet"
+      source_description = "The sleep worksheet",
+      diagnostic_log_path = diagnostic_log_path
     )
   sleep_measurements <- c(
     time_in_bed = "time_in_bed",
@@ -1446,7 +1519,10 @@ write_transformed_tables <- function(connection, tables) {
   as.list(row_counts)
 }
 
-transform_icu_workbook <- function(input_path, database_path) {
+transform_icu_workbook <- function(
+    input_path,
+    database_path,
+    diagnostic_log_path = NULL) {
   check_runtime_packages()
 
   if (length(input_path) != 1L || !fs::file_exists(path = input_path)) {
@@ -1484,11 +1560,15 @@ transform_icu_workbook <- function(input_path, database_path) {
     sheet_layout = layout$sleep
   )
 
-  crf_tables <- build_crf_tables(crf_rows = crf_rows)
+  crf_tables <- build_crf_tables(
+    crf_rows = crf_rows,
+    diagnostic_log_path = diagnostic_log_path
+  )
   session_tables <- build_session_tables(
     physiotherapy_rows = physiotherapy_rows,
     control_rows = control_rows,
-    patient_index = crf_tables$patient_index
+    patient_index = crf_tables$patient_index,
+    diagnostic_log_path = diagnostic_log_path
   )
   physiological_assessments <- build_physiological_assessments(
     physiotherapy_rows = session_tables$physiotherapy_linked,
@@ -1496,7 +1576,8 @@ transform_icu_workbook <- function(input_path, database_path) {
   )
   sleep_assessments <- build_sleep_assessments(
     sleep_rows = sleep_rows,
-    patient_index = crf_tables$patient_index
+    patient_index = crf_tables$patient_index,
+    diagnostic_log_path = diagnostic_log_path
   )
   tables <- list(
     patients = crf_tables$patients,

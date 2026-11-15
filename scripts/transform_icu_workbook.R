@@ -23,18 +23,20 @@ source(
 )
 
 main <- function(args = commandArgs(trailingOnly = TRUE)) {
-  if (length(args) != 2L) {
+  if (!length(args) %in% c(2L, 3L)) {
     rlang::abort(
       message = stringr::str_c(
         "Usage: Rscript scripts/transform_icu_workbook.R",
-        " <input.xlsx> <output.duckdb>"
+        " <input.xlsx> <output.duckdb> [diagnostics.csv]"
       )
     )
   }
 
+  diagnostic_log_path <- if (length(args) == 3L) args[[3L]] else NULL
   row_counts <- transform_icu_workbook(
     input_path = args[[1L]],
-    database_path = args[[2L]]
+    database_path = args[[2L]],
+    diagnostic_log_path = diagnostic_log_path
   )
   count_summary <- purrr::imap_chr(
     .x = row_counts,
