@@ -82,6 +82,165 @@ testthat::test_that(
 )
 
 testthat::test_that(
+  desc = "the sleep duration parser converts supported source formats",
+  code = {
+    hours_minutes <- parse_sleep_duration_cell(
+      value = "2h 5m",
+      input_format = "hours_minutes"
+    )
+    minute_suffix <- parse_sleep_duration_cell(
+      value = "15.5m",
+      input_format = "minute_suffix"
+    )
+    blank_value <- parse_sleep_duration_cell(
+      value = NA_character_,
+      input_format = "minute_suffix"
+    )
+    invalid_hours_minutes <- parse_sleep_duration_cell(
+      value = "2h 60m",
+      input_format = "hours_minutes"
+    )
+    invalid_minutes <- parse_sleep_duration_cell(
+      value = "15",
+      input_format = "minute_suffix"
+    )
+
+    testthat::expect_identical(hours_minutes$minutes, 125)
+    testthat::expect_true(hours_minutes$valid)
+    testthat::expect_identical(minute_suffix$minutes, 15.5)
+    testthat::expect_true(minute_suffix$valid)
+    testthat::expect_identical(blank_value$minutes, NA_real_)
+    testthat::expect_true(blank_value$valid)
+    testthat::expect_false(invalid_hours_minutes$valid)
+    testthat::expect_identical(
+      invalid_hours_minutes$raw_kind,
+      "minutes_out_of_range"
+    )
+    testthat::expect_false(invalid_minutes$valid)
+    testthat::expect_identical(invalid_minutes$raw_kind, "unsupported_text")
+  }
+)
+
+testthat::test_that(
+  desc = "the transformer stores sleep durations as numeric minutes",
+  code = {
+    workbook_path <- fs::file_temp(ext = ".xlsx")
+    database_path <- fs::file_temp(ext = ".duckdb")
+    on.exit(
+      expr = {
+        paths <- c(workbook_path, database_path)
+        existing_paths <- paths[fs::file_exists(path = paths)]
+        if (length(existing_paths) > 0L) {
+          fs::file_delete(path = existing_paths)
+        }
+      },
+      add = TRUE
+    )
+    write_synthetic_workbook(workbook_path = workbook_path)
+    transform_icu_workbook(
+      input_path = workbook_path,
+      database_path = database_path
+    )
+    connection <- DBI::dbConnect(
+      drv = duckdb::duckdb(),
+      dbdir = database_path,
+      read_only = TRUE
+    )
+    on.exit(
+      expr = DBI::dbDisconnect(conn = connection, shutdown = TRUE),
+      add = TRUE
+    )
+
+    sleep_values <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT "session_id", "time_in_bed", "total_sleep_time",',
+        '"wake_after_sleep_onset", "sleep_latency", "stage1_duration",',
+        '"stage2_duration", "slow_wave_sleep_duration"',
+        'FROM "sleep_assessments"',
+        'ORDER BY "session_id"',
+        sep = " "
+      )
+    )
+    sleep_types <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT typeof("time_in_bed") AS "time_in_bed_type",',
+        'typeof("total_sleep_time") AS "total_sleep_time_type",',
+        'typeof("wake_after_sleep_onset") AS "wake_after_sleep_onset_type",',
+        'typeof("sleep_latency") AS "sleep_latency_type",',
+        'typeof("stage1_duration") AS "stage1_duration_type",',
+        'typeof("stage2_duration") AS "stage2_duration_type",',
+        'typeof("slow_wave_sleep_duration")',
+        'AS "slow_wave_sleep_duration_type"',
+        'FROM "sleep_assessments" LIMIT 1',
+        sep = " "
+      )
+    )
+
+    testthat::expect_identical(
+      sleep_values$session_id,
+      c("1::withPhysiotherapy", "1::withoutPhysiotherapy")
+    )
+    testthat::expect_identical(sleep_values$time_in_bed, c(525, 495))
+    testthat::expect_identical(sleep_values$total_sleep_time, c(465, 450))
+    testthat::expect_identical(
+      sleep_values$wake_after_sleep_onset,
+      c(12, 15.5)
+    )
+    testthat::expect_identical(sleep_values$sleep_latency, c(8, 10))
+    testthat::expect_identical(sleep_values$stage1_duration, c(25, 30))
+    testthat::expect_identical(sleep_values$stage2_duration, c(250, 240))
+    testthat::expect_identical(
+      sleep_values$slow_wave_sleep_duration,
+      c(85, 90)
+    )
+    testthat::expect_identical(
+      as.character(sleep_types[1L, ]),
+      rep(x = "DOUBLE", times = 7L)
+    )
+  }
+)
+
+testthat::test_that(
+  desc = "the transformer rejects malformed sleep durations",
+  code = {
+    workbook_path <- fs::file_temp(ext = ".xlsx")
+    database_path <- fs::file_temp(ext = ".duckdb")
+    on.exit(
+      expr = {
+        paths <- c(workbook_path, database_path)
+        existing_paths <- paths[fs::file_exists(path = paths)]
+        if (length(existing_paths) > 0L) {
+          fs::file_delete(path = existing_paths)
+        }
+      },
+      add = TRUE
+    )
+    write_synthetic_workbook(workbook_path = workbook_path)
+    overwrite_excel_cell(
+      workbook_path = workbook_path,
+      sheet_name = "sleep data",
+      value = "8h 60m",
+      column_number = 3L,
+      row_number = 3L
+    )
+
+    testthat::expect_error(
+      object = transform_icu_workbook(
+        input_path = workbook_path,
+        database_path = database_path
+      ),
+      regexp = stringr::str_c(
+        "Worksheet 'sleep data' contains invalid sleep duration values in ",
+        "'without_time_in_bed' at Excel row\\(s\\): 3 ",
+        "\\(types: minutes_out_of_range=1\\)"
+      )
+    )
+  }
+)
+
+testthat::test_that(
   desc = "the transformer creates a paired name-free DuckDB database",
   code = {
     workbook_path <- fs::file_temp(ext = ".xlsx")

@@ -357,6 +357,33 @@ time_of_day_column_names <- c(
   "mechanical_ventilation_start_time"
 )
 
+sleep_duration_column_formats <- c(
+  without_time_in_bed = "hours_minutes",
+  without_total_sleep_time = "hours_minutes",
+  without_wake_after_sleep_onset = "minute_suffix",
+  without_sleep_latency = "minute_suffix",
+  without_stage1_duration = "minute_suffix",
+  without_stage2_duration = "minute_suffix",
+  without_slow_wave_sleep_duration = "minute_suffix",
+  with_time_in_bed = "hours_minutes",
+  with_total_sleep_time = "hours_minutes",
+  with_wake_after_sleep_onset = "minute_suffix",
+  with_sleep_latency = "minute_suffix",
+  with_stage1_duration = "minute_suffix",
+  with_stage2_duration = "minute_suffix",
+  with_slow_wave_sleep_duration = "minute_suffix"
+)
+
+sleep_duration_column_names <- c(
+  "time_in_bed",
+  "total_sleep_time",
+  "wake_after_sleep_onset",
+  "sleep_latency",
+  "stage1_duration",
+  "stage2_duration",
+  "slow_wave_sleep_duration"
+)
+
 database_column_names <- list(
   patients = c(
     patient_id = "patient_id",
@@ -1035,6 +1062,128 @@ parse_time_column <- function(
   )
 }
 
+parse_sleep_duration_cell <- function(value, input_format) {
+  if (is_missing_source_value(value)) {
+    return(list(
+      minutes = NA_real_,
+      raw_kind = "blank",
+      valid = TRUE
+    ))
+  }
+
+  if (!is.character(value)) {
+    return(list(
+      minutes = NA_real_,
+      raw_kind = "unsupported_type",
+      valid = FALSE
+    ))
+  }
+
+  normalized_value <- normalize_text(values = value)
+  if (input_format == "hours_minutes") {
+    components <- stringr::str_match(
+      string = normalized_value,
+      pattern = "^([0-9]+)h ([0-9]+)m$"
+    )
+    if (is.na(components[, 1L])) {
+      return(list(
+        minutes = NA_real_,
+        raw_kind = "unsupported_text",
+        valid = FALSE
+      ))
+    }
+
+    hours <- as.numeric(components[, 2L])
+    minutes <- as.numeric(components[, 3L])
+    if (minutes > 59) {
+      return(list(
+        minutes = NA_real_,
+        raw_kind = "minutes_out_of_range",
+        valid = FALSE
+      ))
+    }
+
+    return(list(
+      minutes = hours * 60 + minutes,
+      raw_kind = "text_hours_minutes",
+      valid = TRUE
+    ))
+  }
+
+  if (input_format == "minute_suffix") {
+    components <- stringr::str_match(
+      string = normalized_value,
+      pattern = "^([0-9]+(?:\\.[0-9]+)?)m$"
+    )
+    if (is.na(components[, 1L])) {
+      return(list(
+        minutes = NA_real_,
+        raw_kind = "unsupported_text",
+        valid = FALSE
+      ))
+    }
+
+    return(list(
+      minutes = as.numeric(components[, 2L]),
+      raw_kind = "text_minutes",
+      valid = TRUE
+    ))
+  }
+
+  rlang::abort(
+    message = glue::glue("Unsupported sleep duration format: {input_format}.")
+  )
+}
+
+parse_sleep_duration_column <- function(
+    values,
+    input_format,
+    column_name,
+    source_sheet,
+    source_row_numbers) {
+  parsed_cells <- purrr::map(
+    .x = values,
+    .f = function(value) {
+      parse_sleep_duration_cell(
+        value = value,
+        input_format = input_format
+      )
+    }
+  )
+  valid_values <- purrr::map_lgl(
+    .x = parsed_cells,
+    .f = function(parsed_cell) parsed_cell$valid
+  )
+
+  if (any(!valid_values)) {
+    invalid_rows <- source_row_numbers[!valid_values]
+    invalid_kinds <- purrr::map_chr(
+      .x = parsed_cells[!valid_values],
+      .f = function(parsed_cell) parsed_cell$raw_kind
+    ) |>
+      tibble::tibble(raw_kind = _) |>
+      dplyr::count(.data$raw_kind, name = "row_count") |>
+      dplyr::transmute(
+        summary = stringr::str_c(.data$raw_kind, "=", .data$row_count)
+      ) |>
+      dplyr::pull(var = "summary") |>
+      stringr::str_c(collapse = ", ")
+    rlang::abort(
+      message = glue::glue(
+        "Worksheet '{source_sheet}' contains invalid sleep duration values ",
+        "in '{column_name}' at Excel row(s): ",
+        "{stringr::str_c(invalid_rows, collapse = ', ')} ",
+        "(types: {invalid_kinds})."
+      )
+    )
+  }
+
+  purrr::map_dbl(
+    .x = parsed_cells,
+    .f = function(parsed_cell) parsed_cell$minutes
+  )
+}
+
 parse_date_columns <- function(source_rows, source_sheet) {
   date_columns <- names(source_rows)[stringr::str_detect(
     string = names(source_rows),
@@ -1062,6 +1211,25 @@ parse_time_columns <- function(source_rows, source_sheet) {
   for (column_name in time_columns) {
     source_rows[[column_name]] <- parse_time_column(
       values = source_rows[[column_name]],
+      column_name = column_name,
+      source_sheet = source_sheet,
+      source_row_numbers = source_rows$source_row_number
+    )
+  }
+
+  source_rows
+}
+
+parse_sleep_duration_columns <- function(source_rows, source_sheet) {
+  duration_columns <- intersect(
+    x = names(sleep_duration_column_formats),
+    y = names(source_rows)
+  )
+
+  for (column_name in duration_columns) {
+    source_rows[[column_name]] <- parse_sleep_duration_column(
+      values = source_rows[[column_name]],
+      input_format = sleep_duration_column_formats[[column_name]],
       column_name = column_name,
       source_sheet = source_sheet,
       source_row_numbers = source_rows$source_row_number
@@ -1136,7 +1304,11 @@ read_source_rows <- function(input_path, sheet_layout) {
     source_rows = source_rows,
     source_sheet = sheet_layout$sheet_name
   )
-  parse_time_columns(
+  source_rows <- parse_time_columns(
+    source_rows = source_rows,
+    source_sheet = sheet_layout$sheet_name
+  )
+  parse_sleep_duration_columns(
     source_rows = source_rows,
     source_sheet = sheet_layout$sheet_name
   )
@@ -1805,11 +1977,21 @@ assert_raw_value_types <- function(tables) {
             is_date_column && inherits(values, what = "Date")
           }
         )
+        allowed_numeric <- purrr::imap_lgl(
+          .x = data,
+          .f = function(values, column_name) {
+            table_name == "sleep_assessments" &&
+              column_name %in% sleep_duration_column_names &&
+              is.numeric(values)
+          }
+        )
         is_character_column <- purrr::map_lgl(
           .x = data,
           .f = is.character
         )
-        column_names[!(allowed_integer | allowed_date | is_character_column)]
+        column_names[!(
+          allowed_integer | allowed_date | allowed_numeric | is_character_column
+        )]
       }
     ) |>
     purrr::compact()
@@ -1818,7 +2000,7 @@ assert_raw_value_types <- function(tables) {
     rlang::abort(
       message = stringr::str_c(
         "Retained values must be character, except source_row_number and ",
-        "date columns."
+        "date columns, plus numeric sleep duration columns."
       )
     )
   }
@@ -1944,17 +2126,17 @@ create_duckdb_schema <- function(connection) {
     'CREATE TABLE "sleep_assessments" (
       "sleep_assessment_id" VARCHAR PRIMARY KEY,
       "session_id" VARCHAR NOT NULL UNIQUE,
-      "time_in_bed" VARCHAR,
-      "total_sleep_time" VARCHAR,
+      "time_in_bed" DOUBLE,
+      "total_sleep_time" DOUBLE,
       "sleep_efficiency" VARCHAR,
-      "wake_after_sleep_onset" VARCHAR,
-      "sleep_latency" VARCHAR,
+      "wake_after_sleep_onset" DOUBLE,
+      "sleep_latency" DOUBLE,
       "stage_shifts" VARCHAR,
-      "stage1_duration" VARCHAR,
+      "stage1_duration" DOUBLE,
       "stage1_percent_tst" VARCHAR,
-      "stage2_duration" VARCHAR,
+      "stage2_duration" DOUBLE,
       "stage2_percent_tst" VARCHAR,
-      "slow_wave_sleep_duration" VARCHAR,
+      "slow_wave_sleep_duration" DOUBLE,
       "slow_wave_sleep_percent_tst" VARCHAR,
       "rem_sleep_duration" VARCHAR,
       "rem_sleep_percent_tst" VARCHAR,
