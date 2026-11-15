@@ -2,6 +2,37 @@ testthat::skip_if_not_installed(pkg = "readxl")
 testthat::skip_if_not_installed(pkg = "openxlsx")
 
 testthat::test_that(
+  desc = "the date parser normalizes flexible clinical date formats",
+  code = {
+    parsed_dates <- parse_ddmmyyyy(
+      values = c(
+        "1/2/25",
+        "01/2/25",
+        "1/02/2025",
+        "01/02/2025",
+        " 1/1/00 ",
+        "1/1/99"
+      ),
+      column_name = "admission_date",
+      source_sheet = "crf data",
+      source_row_numbers = 2:7
+    )
+
+    testthat::expect_identical(
+      parsed_dates,
+      as.Date(x = c(
+        "2025-02-01",
+        "2025-02-01",
+        "2025-02-01",
+        "2025-02-01",
+        "2000-01-01",
+        "2099-01-01"
+      ))
+    )
+  }
+)
+
+testthat::test_that(
   desc = "the transformer creates a paired name-free DuckDB database",
   code = {
     workbook_path <- fs::file_temp(ext = ".xlsx")
@@ -217,6 +248,99 @@ testthat::test_that(
 )
 
 testthat::test_that(
+  desc = "the transformer normalizes flexible dates in every date field",
+  code = {
+    workbook_path <- fs::file_temp(ext = ".xlsx")
+    database_path <- fs::file_temp(ext = ".duckdb")
+    on.exit(
+      expr = {
+        paths <- c(workbook_path, database_path)
+        existing_paths <- paths[fs::file_exists(path = paths)]
+        if (length(existing_paths) > 0L) {
+          fs::file_delete(path = existing_paths)
+        }
+      },
+      add = TRUE
+    )
+    write_synthetic_workbook(
+      workbook_path = workbook_path,
+      patient_ids = c("1", "2", "3", "4"),
+      admission_dates = c(
+        "1/2/25",
+        "01/2/25",
+        "1/02/2025",
+        "01/02/2025"
+      ),
+      mechanical_ventilation_start_dates = c(
+        "3/4/25",
+        "03/4/25",
+        "3/04/2025",
+        "03/04/2025"
+      ),
+      icu_discharge_dates = c(
+        "5/6/25",
+        "05/6/25",
+        "5/06/2025",
+        "05/06/2025"
+      ),
+      connection_dates = c(
+        "7/8/25",
+        "07/8/25",
+        "7/08/2025",
+        "07/08/2025"
+      )
+    )
+
+    transform_icu_workbook(
+      input_path = workbook_path,
+      database_path = database_path
+    )
+    connection <- DBI::dbConnect(
+      drv = duckdb::duckdb(),
+      dbdir = database_path,
+      read_only = TRUE
+    )
+    on.exit(
+      expr = DBI::dbDisconnect(conn = connection, shutdown = TRUE),
+      add = TRUE
+    )
+
+    admission_dates <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT "admission_date", "mechanical_ventilation_start_date",',
+        '"icu_discharge_date" FROM "icu_admissions"',
+        'ORDER BY "patient_id"'
+      )
+    )
+    connection_dates <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT "connection_date" FROM "study_sessions"',
+        'WHERE "condition" = \'withPhysiotherapy\'',
+        'ORDER BY "patient_id"'
+      )
+    )
+    testthat::expect_identical(
+      admission_dates$admission_date,
+      rep(x = as.Date(x = "2025-02-01"), times = 4L)
+    )
+    testthat::expect_identical(
+      admission_dates$mechanical_ventilation_start_date,
+      rep(x = as.Date(x = "2025-04-03"), times = 4L)
+    )
+    testthat::expect_identical(
+      admission_dates$icu_discharge_date,
+      rep(x = as.Date(x = "2025-06-05"), times = 4L)
+    )
+    testthat::expect_identical(
+      connection_dates$connection_date,
+      rep(x = as.Date(x = "2025-08-07"), times = 4L)
+    )
+  }
+)
+
+testthat::test_that(
   desc = "the transformer rejects malformed and impossible dates",
   code = {
     workbook_path <- fs::file_temp(ext = ".xlsx")
@@ -233,8 +357,14 @@ testthat::test_that(
     )
     write_synthetic_workbook(
       workbook_path = workbook_path,
-      patient_ids = c("1", "2"),
-      admission_dates = c("2026-01-01", "31/02/2026")
+      patient_ids = c("1", "2", "3", "4", "5"),
+      admission_dates = c(
+        "2026-01-01",
+        "31/02/2026",
+        "1/2/2",
+        "1/2/20255",
+        "1-2-25"
+      )
     )
 
     testthat::expect_error(
@@ -242,7 +372,10 @@ testthat::test_that(
         input_path = workbook_path,
         database_path = database_path
       ),
-      regexp = "invalid dd/mm/yyyy values in 'admission_date' at Excel row\\(s\\): 2, 3"
+      regexp = stringr::str_c(
+        "invalid d/m/yyyy values with a 2- or 4-digit year in ",
+        "'admission_date' at Excel row\\(s\\): 2, 3, 4, 5, 6"
+      )
     )
   }
 )

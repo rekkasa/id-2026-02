@@ -585,19 +585,43 @@ parse_ddmmyyyy <- function(
     column_name,
     source_sheet,
     source_row_numbers) {
-  missing_values <- is_missing_text(values)
-  matches_format <- stringr::str_detect(
-    string = values,
-    pattern = "^[0-9]{2}/[0-9]{2}/[0-9]{4}$"
+  normalized_values <- normalize_text(values)
+  missing_values <- is_missing_text(normalized_values)
+  date_components <- stringr::str_match(
+    string = normalized_values,
+    pattern = "^([0-9]{1,2})/([0-9]{1,2})/([0-9]{2}|[0-9]{4})$"
   )
-  matches_format[is.na(matches_format)] <- FALSE
+  matches_format <- !is.na(date_components[, 1L])
+  day_values <- date_components[, 2L]
+  month_values <- date_components[, 3L]
+  year_values <- date_components[, 4L]
+  short_years <- matches_format & nchar(year_values) == 2L
+  # Short years in these clinical event dates represent 2000 through 2099.
+  year_values[short_years] <- stringr::str_c("20", year_values[short_years])
+  canonical_values <- stringr::str_c(
+    stringr::str_pad(
+      string = day_values,
+      width = 2L,
+      side = "left",
+      pad = "0"
+    ),
+    "/",
+    stringr::str_pad(
+      string = month_values,
+      width = 2L,
+      side = "left",
+      pad = "0"
+    ),
+    "/",
+    year_values
+  )
   parsed_values <- as.Date(
     x = rep(x = NA_character_, times = length(values)),
     format = "%d/%m/%Y"
   )
   parseable_values <- !missing_values & matches_format
   parsed_values[parseable_values] <- as.Date(
-    x = values[parseable_values],
+    x = canonical_values[parseable_values],
     format = "%d/%m/%Y"
   )
   invalid_values <- !missing_values & (!matches_format | is.na(parsed_values))
@@ -606,7 +630,8 @@ parse_ddmmyyyy <- function(
     invalid_rows <- source_row_numbers[invalid_values]
     rlang::abort(
       message = glue::glue(
-        "Worksheet '{source_sheet}' contains invalid dd/mm/yyyy values in ",
+        "Worksheet '{source_sheet}' contains invalid d/m/yyyy values with a ",
+        "2- or 4-digit year in ",
         "'{column_name}' at Excel row(s): ",
         "{stringr::str_c(invalid_rows, collapse = ', ')}."
       )
