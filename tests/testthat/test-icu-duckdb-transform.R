@@ -337,8 +337,10 @@ testthat::test_that(
 
     testthat::expect_equal(row_counts$patients, 1L)
     testthat::expect_equal(row_counts$study_sessions, 2L)
+    testthat::expect_equal(row_counts$patient_clinical_status, 1L)
     testthat::expect_equal(row_counts$physiological_assessments, 4L)
     testthat::expect_equal(row_counts$sleep_assessments, 2L)
+    testthat::expect_null(row_counts$session_clinical_status)
 
     table_names <- DBI::dbListTables(conn = connection)
     table_columns <- purrr::map(
@@ -366,6 +368,8 @@ testthat::test_that(
         pattern = stringr::regex(pattern = "name", ignore_case = TRUE)
       ))
     )
+    testthat::expect_true("patient_clinical_status" %in% table_names)
+    testthat::expect_false("session_clinical_status" %in% table_names)
 
     fraction_value <- DBI::dbGetQuery(
       conn = connection,
@@ -384,6 +388,44 @@ testthat::test_that(
     )
     testthat::expect_identical(patient_values$patient_id, "1")
     testthat::expect_identical(patient_values$eama_reference, "EAMA-001")
+
+    clinical_status_columns <- DBI::dbListFields(
+      conn = connection,
+      name = "patient_clinical_status"
+    )
+    patient_clinical_status <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT "patient_id", "rass_score", "vas_score", "cam_icu_result",',
+        '"borg_score", "borg_rpe_score", "handgrip_strength",',
+        '"mrc_score", "icu_mobility_score"',
+        'FROM "patient_clinical_status"',
+        sep = " "
+      )
+    )
+    testthat::expect_true("patient_id" %in% clinical_status_columns)
+    testthat::expect_false("session_id" %in% clinical_status_columns)
+    testthat::expect_identical(patient_clinical_status$patient_id, "1")
+    testthat::expect_identical(patient_clinical_status$rass_score, "value_4")
+    testthat::expect_identical(patient_clinical_status$vas_score, "value_5")
+    testthat::expect_identical(
+      patient_clinical_status$cam_icu_result,
+      "value_6"
+    )
+    testthat::expect_identical(patient_clinical_status$borg_score, "value_7")
+    testthat::expect_identical(
+      patient_clinical_status$borg_rpe_score,
+      "value_8"
+    )
+    testthat::expect_identical(
+      patient_clinical_status$handgrip_strength,
+      "value_9"
+    )
+    testthat::expect_identical(patient_clinical_status$mrc_score, "value_10")
+    testthat::expect_identical(
+      patient_clinical_status$icu_mobility_score,
+      "value_11"
+    )
 
     admission_dates <- DBI::dbGetQuery(
       conn = connection,

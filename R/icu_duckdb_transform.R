@@ -347,7 +347,7 @@ database_table_names <- c(
   icu_admissions = "icu_admissions",
   patient_comorbidities = "patient_comorbidities",
   study_sessions = "study_sessions",
-  session_clinical_status = "session_clinical_status",
+  patient_clinical_status = "patient_clinical_status",
   physiological_assessments = "physiological_assessments",
   sleep_assessments = "sleep_assessments"
 )
@@ -434,8 +434,8 @@ database_column_names <- list(
     source_sheet = "source_sheet",
     source_row_number = "source_row_number"
   ),
-  session_clinical_status = c(
-    session_id = "session_id",
+  patient_clinical_status = c(
+    patient_id = "patient_id",
     rass_score = "rass_score",
     vas_score = "vas_score",
     cam_icu_result = "cam_icu_result",
@@ -1695,36 +1695,22 @@ build_session_tables <- function(
       )
   )
 
-  session_clinical_status <- dplyr::bind_rows(
-    physiotherapy_linked |>
-      dplyr::transmute(
-        session_id = .data$session_id,
-        rass_score = .data$rass_score,
-        vas_score = .data$vas_score,
-        cam_icu_result = .data$cam_icu_result,
-        borg_score = .data$borg_score,
-        borg_rpe_score = .data$borg_rpe_score,
-        handgrip_strength = .data$handgrip_strength,
-        mrc_score = .data$mrc_score,
-        icu_mobility_score = .data$icu_mobility_score
-      ),
-    control_linked |>
-      dplyr::transmute(
-        session_id = .data$session_id,
-        rass_score = .data$rass_score,
-        vas_score = .data$vas_score,
-        cam_icu_result = .data$cam_icu_result,
-        borg_score = NA_character_,
-        borg_rpe_score = NA_character_,
-        handgrip_strength = NA_character_,
-        mrc_score = NA_character_,
-        icu_mobility_score = NA_character_
-      )
-  )
+  patient_clinical_status <- physiotherapy_linked |>
+    dplyr::transmute(
+      patient_id = .data$patient_id,
+      rass_score = .data$rass_score,
+      vas_score = .data$vas_score,
+      cam_icu_result = .data$cam_icu_result,
+      borg_score = .data$borg_score,
+      borg_rpe_score = .data$borg_rpe_score,
+      handgrip_strength = .data$handgrip_strength,
+      mrc_score = .data$mrc_score,
+      icu_mobility_score = .data$icu_mobility_score
+    )
 
   list(
     study_sessions = study_sessions,
-    session_clinical_status = session_clinical_status,
+    patient_clinical_status = patient_clinical_status,
     physiotherapy_linked = physiotherapy_linked,
     control_linked = control_linked
   )
@@ -2126,9 +2112,9 @@ validate_transformed_tables <- function(tables) {
   )
   assert_session_pairing(study_sessions = tables$study_sessions)
   assert_unique(
-    data = tables$session_clinical_status,
-    column_name = "session_id",
-    context = "The session clinical-status table"
+    data = tables$patient_clinical_status,
+    column_name = "patient_id",
+    context = "The patient clinical-status table"
   )
   assert_assessment_phases(
     physiological_assessments = tables$physiological_assessments,
@@ -2190,8 +2176,8 @@ create_duckdb_schema <- function(connection) {
       FOREIGN KEY ("patient_id") REFERENCES "patients" ("patient_id"),
       FOREIGN KEY ("admission_id") REFERENCES "icu_admissions" ("admission_id")
     )',
-    'CREATE TABLE "session_clinical_status" (
-      "session_id" VARCHAR PRIMARY KEY,
+    'CREATE TABLE "patient_clinical_status" (
+      "patient_id" VARCHAR PRIMARY KEY,
       "rass_score" VARCHAR,
       "vas_score" VARCHAR,
       "cam_icu_result" VARCHAR,
@@ -2200,7 +2186,7 @@ create_duckdb_schema <- function(connection) {
       "handgrip_strength" VARCHAR,
       "mrc_score" VARCHAR,
       "icu_mobility_score" VARCHAR,
-      FOREIGN KEY ("session_id") REFERENCES "study_sessions" ("session_id")
+      FOREIGN KEY ("patient_id") REFERENCES "patients" ("patient_id")
     )',
     'CREATE TABLE "physiological_assessments" (
       "assessment_id" VARCHAR PRIMARY KEY,
@@ -2388,7 +2374,7 @@ transform_icu_workbook <- function(
     icu_admissions = crf_tables$icu_admissions,
     patient_comorbidities = crf_tables$patient_comorbidities,
     study_sessions = session_tables$study_sessions,
-    session_clinical_status = session_tables$session_clinical_status,
+    patient_clinical_status = session_tables$patient_clinical_status,
     physiological_assessments = physiological_assessments,
     sleep_assessments = sleep_assessments
   )
