@@ -384,6 +384,16 @@ sleep_duration_column_names <- c(
   "slow_wave_sleep_duration"
 )
 
+arousal_index_source_column_names <- c(
+  "without_arousal_index",
+  "with_arousal_index"
+)
+
+sleep_numeric_column_names <- c(
+  sleep_duration_column_names,
+  "arousal_index"
+)
+
 database_column_names <- list(
   patients = c(
     patient_id = "patient_id",
@@ -1184,6 +1194,85 @@ parse_sleep_duration_column <- function(
   )
 }
 
+parse_arousal_index_cell <- function(value) {
+  if (is_missing_source_value(value)) {
+    return(list(
+      value = NA_real_,
+      raw_kind = "blank",
+      valid = TRUE
+    ))
+  }
+
+  if (!is.character(value)) {
+    return(list(
+      value = NA_real_,
+      raw_kind = "unsupported_type",
+      valid = FALSE
+    ))
+  }
+
+  components <- stringr::str_match(
+    string = normalize_text(values = value),
+    pattern = "^([0-9]+(?:\\.[0-9]+)?)(?:\\s*/\\s*[Hh])?$"
+  )
+  if (is.na(components[, 1L])) {
+    return(list(
+      value = NA_real_,
+      raw_kind = "unsupported_text",
+      valid = FALSE
+    ))
+  }
+
+  list(
+    value = as.numeric(components[, 2L]),
+    raw_kind = "text_arousal_index",
+    valid = TRUE
+  )
+}
+
+parse_arousal_index_column <- function(
+    values,
+    column_name,
+    source_sheet,
+    source_row_numbers) {
+  parsed_cells <- purrr::map(
+    .x = values,
+    .f = parse_arousal_index_cell
+  )
+  valid_values <- purrr::map_lgl(
+    .x = parsed_cells,
+    .f = function(parsed_cell) parsed_cell$valid
+  )
+
+  if (any(!valid_values)) {
+    invalid_rows <- source_row_numbers[!valid_values]
+    invalid_kinds <- purrr::map_chr(
+      .x = parsed_cells[!valid_values],
+      .f = function(parsed_cell) parsed_cell$raw_kind
+    ) |>
+      tibble::tibble(raw_kind = _) |>
+      dplyr::count(.data$raw_kind, name = "row_count") |>
+      dplyr::transmute(
+        summary = stringr::str_c(.data$raw_kind, "=", .data$row_count)
+      ) |>
+      dplyr::pull(var = "summary") |>
+      stringr::str_c(collapse = ", ")
+    rlang::abort(
+      message = glue::glue(
+        "Worksheet '{source_sheet}' contains invalid arousal index values in ",
+        "'{column_name}' at Excel row(s): ",
+        "{stringr::str_c(invalid_rows, collapse = ', ')} ",
+        "(types: {invalid_kinds})."
+      )
+    )
+  }
+
+  purrr::map_dbl(
+    .x = parsed_cells,
+    .f = function(parsed_cell) parsed_cell$value
+  )
+}
+
 parse_date_columns <- function(source_rows, source_sheet) {
   date_columns <- names(source_rows)[stringr::str_detect(
     string = names(source_rows),
@@ -1230,6 +1319,24 @@ parse_sleep_duration_columns <- function(source_rows, source_sheet) {
     source_rows[[column_name]] <- parse_sleep_duration_column(
       values = source_rows[[column_name]],
       input_format = sleep_duration_column_formats[[column_name]],
+      column_name = column_name,
+      source_sheet = source_sheet,
+      source_row_numbers = source_rows$source_row_number
+    )
+  }
+
+  source_rows
+}
+
+parse_arousal_index_columns <- function(source_rows, source_sheet) {
+  arousal_index_columns <- intersect(
+    x = arousal_index_source_column_names,
+    y = names(source_rows)
+  )
+
+  for (column_name in arousal_index_columns) {
+    source_rows[[column_name]] <- parse_arousal_index_column(
+      values = source_rows[[column_name]],
       column_name = column_name,
       source_sheet = source_sheet,
       source_row_numbers = source_rows$source_row_number
@@ -1308,7 +1415,11 @@ read_source_rows <- function(input_path, sheet_layout) {
     source_rows = source_rows,
     source_sheet = sheet_layout$sheet_name
   )
-  parse_sleep_duration_columns(
+  source_rows <- parse_sleep_duration_columns(
+    source_rows = source_rows,
+    source_sheet = sheet_layout$sheet_name
+  )
+  parse_arousal_index_columns(
     source_rows = source_rows,
     source_sheet = sheet_layout$sheet_name
   )
@@ -1981,7 +2092,7 @@ assert_raw_value_types <- function(tables) {
           .x = data,
           .f = function(values, column_name) {
             table_name == "sleep_assessments" &&
-              column_name %in% sleep_duration_column_names &&
+              column_name %in% sleep_numeric_column_names &&
               is.numeric(values)
           }
         )
@@ -2000,7 +2111,7 @@ assert_raw_value_types <- function(tables) {
     rlang::abort(
       message = stringr::str_c(
         "Retained values must be character, except source_row_number and ",
-        "date columns, plus numeric sleep duration columns."
+        "date columns, plus numeric sleep columns."
       )
     )
   }
@@ -2140,7 +2251,7 @@ create_duckdb_schema <- function(connection) {
       "slow_wave_sleep_percent_tst" VARCHAR,
       "rem_sleep_duration" VARCHAR,
       "rem_sleep_percent_tst" VARCHAR,
-      "arousal_index" VARCHAR,
+      "arousal_index" DOUBLE,
       "rcsq_score" VARCHAR,
       "source_row_number" INTEGER NOT NULL,
       FOREIGN KEY ("session_id") REFERENCES "study_sessions" ("session_id")

@@ -206,10 +206,12 @@ write_synthetic_workbook <- function(
         patient_id = patient_ids[[index]]
       )
       sleep_row[c(
-        3L, 4L, 6L, 7L, 9L, 11L, 13L, 19L, 20L, 22L, 23L, 25L, 27L, 29L
+        3L, 4L, 6L, 7L, 9L, 11L, 13L, 17L, 19L, 20L, 22L, 23L, 25L, 27L, 29L,
+        33L
       )] <- c(
         "8h 15m", "7h 30m", "15.5m", "10m", "30m", "240m", "90m",
-        "8h 45m", "7h 45m", "12m", "8m", "25m", "250m", "85m"
+        "18.5/h", "8h 45m", "7h 45m", "12m", "8m", "25m", "250m",
+        "85m", "12"
       )
       write_excel_row(
         workbook = workbook,

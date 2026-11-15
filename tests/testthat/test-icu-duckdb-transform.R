@@ -122,7 +122,26 @@ testthat::test_that(
 )
 
 testthat::test_that(
-  desc = "the transformer stores sleep durations as numeric minutes",
+  desc = "the arousal index parser normalizes optional per-hour suffixes",
+  code = {
+    per_hour <- parse_arousal_index_cell(value = "18.5/h")
+    numeric_value <- parse_arousal_index_cell(value = "12")
+    blank_value <- parse_arousal_index_cell(value = NA_character_)
+    invalid_value <- parse_arousal_index_cell(value = "18/day")
+
+    testthat::expect_identical(per_hour$value, 18.5)
+    testthat::expect_true(per_hour$valid)
+    testthat::expect_identical(numeric_value$value, 12)
+    testthat::expect_true(numeric_value$valid)
+    testthat::expect_identical(blank_value$value, NA_real_)
+    testthat::expect_true(blank_value$valid)
+    testthat::expect_false(invalid_value$valid)
+    testthat::expect_identical(invalid_value$raw_kind, "unsupported_text")
+  }
+)
+
+testthat::test_that(
+  desc = "the transformer stores numeric sleep measurements",
   code = {
     workbook_path <- fs::file_temp(ext = ".xlsx")
     database_path <- fs::file_temp(ext = ".duckdb")
@@ -156,7 +175,7 @@ testthat::test_that(
       statement = stringr::str_c(
         'SELECT "session_id", "time_in_bed", "total_sleep_time",',
         '"wake_after_sleep_onset", "sleep_latency", "stage1_duration",',
-        '"stage2_duration", "slow_wave_sleep_duration"',
+        '"stage2_duration", "slow_wave_sleep_duration", "arousal_index"',
         'FROM "sleep_assessments"',
         'ORDER BY "session_id"',
         sep = " "
@@ -172,7 +191,8 @@ testthat::test_that(
         'typeof("stage1_duration") AS "stage1_duration_type",',
         'typeof("stage2_duration") AS "stage2_duration_type",',
         'typeof("slow_wave_sleep_duration")',
-        'AS "slow_wave_sleep_duration_type"',
+        'AS "slow_wave_sleep_duration_type",',
+        'typeof("arousal_index") AS "arousal_index_type"',
         'FROM "sleep_assessments" LIMIT 1',
         sep = " "
       )
@@ -195,9 +215,10 @@ testthat::test_that(
       sleep_values$slow_wave_sleep_duration,
       c(85, 90)
     )
+    testthat::expect_identical(sleep_values$arousal_index, c(12, 18.5))
     testthat::expect_identical(
       as.character(sleep_types[1L, ]),
-      rep(x = "DOUBLE", times = 7L)
+      rep(x = "DOUBLE", times = 8L)
     )
   }
 )
@@ -235,6 +256,44 @@ testthat::test_that(
         "Worksheet 'sleep data' contains invalid sleep duration values in ",
         "'without_time_in_bed' at Excel row\\(s\\): 3 ",
         "\\(types: minutes_out_of_range=1\\)"
+      )
+    )
+  }
+)
+
+testthat::test_that(
+  desc = "the transformer rejects malformed arousal indices",
+  code = {
+    workbook_path <- fs::file_temp(ext = ".xlsx")
+    database_path <- fs::file_temp(ext = ".duckdb")
+    on.exit(
+      expr = {
+        paths <- c(workbook_path, database_path)
+        existing_paths <- paths[fs::file_exists(path = paths)]
+        if (length(existing_paths) > 0L) {
+          fs::file_delete(path = existing_paths)
+        }
+      },
+      add = TRUE
+    )
+    write_synthetic_workbook(workbook_path = workbook_path)
+    overwrite_excel_cell(
+      workbook_path = workbook_path,
+      sheet_name = "sleep data",
+      value = "18/day",
+      column_number = 17L,
+      row_number = 3L
+    )
+
+    testthat::expect_error(
+      object = transform_icu_workbook(
+        input_path = workbook_path,
+        database_path = database_path
+      ),
+      regexp = stringr::str_c(
+        "Worksheet 'sleep data' contains invalid arousal index values in ",
+        "'without_arousal_index' at Excel row\\(s\\): 3 ",
+        "\\(types: unsupported_text=1\\)"
       )
     )
   }
