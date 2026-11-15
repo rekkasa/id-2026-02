@@ -482,8 +482,9 @@ database_column_names <- list(
     source_row_number = "source_row_number"
   ),
   sleep_assessments = c(
-    sleep_assessment_id = "sleep_assessment_id",
-    session_id = "session_id",
+    assessment_id = "assessment_id",
+    patient_id = "patient_id",
+    assessment = "assessment",
     time_in_bed = "time_in_bed",
     total_sleep_time = "total_sleep_time",
     sleep_efficiency = "sleep_efficiency",
@@ -2096,7 +2097,7 @@ build_physiological_assessments <- function(
     )
 }
 
-build_sleep_rows <- function(rows, condition, column_map) {
+build_sleep_rows <- function(rows, assessment, column_map) {
   measurement_values <- purrr::imap(
     .x = column_map,
     .f = function(source_column, target_column) rows[[source_column]]
@@ -2104,13 +2105,8 @@ build_sleep_rows <- function(rows, condition, column_map) {
 
   dplyr::transmute(
     rows,
-    sleep_assessment_id = stringr::str_c(
-      .data$patient_id,
-      "::",
-      .env$condition,
-      "::sleep"
-    ),
-    session_id = stringr::str_c(.data$patient_id, "::", .env$condition),
+    patient_id = .data$patient_id,
+    assessment = .env$assessment,
     !!!measurement_values,
     source_row_number = .data$source_row_number
   )
@@ -2152,15 +2148,19 @@ build_sleep_assessments <- function(
   dplyr::bind_rows(
     build_sleep_rows(
       rows = sleep_linked,
-      condition = "withoutPhysiotherapy",
-      column_map = without_map
+      assessment = "with_physiotherapy",
+      column_map = with_map
     ),
     build_sleep_rows(
       rows = sleep_linked,
-      condition = "withPhysiotherapy",
-      column_map = with_map
+      assessment = "without_physiotherapy",
+      column_map = without_map
     )
-  )
+  ) |>
+    dplyr::mutate(
+      assessment_id = as.integer(dplyr::row_number()),
+      .before = 1L
+    )
 }
 
 assert_session_pairing <- function(study_sessions) {
@@ -2253,30 +2253,44 @@ assert_assessment_phases <- function(
   }
 }
 
-assert_sleep_sessions <- function(sleep_assessments, study_sessions) {
-  duplicate_sleep_rows <- sleep_assessments |>
-    dplyr::count(.data$session_id, name = "sleep_count") |>
+assert_sleep_assessments <- function(sleep_assessments, study_sessions) {
+  expected_assessments <- study_sessions |>
+    dplyr::transmute(
+      patient_id = .data$patient_id,
+      assessment = dplyr::recode(
+        .data$condition,
+        withPhysiotherapy = "with_physiotherapy",
+        withoutPhysiotherapy = "without_physiotherapy"
+      )
+    )
+  observed_assessments <- sleep_assessments |>
+    dplyr::select("patient_id", "assessment")
+  duplicate_sleep_rows <- observed_assessments |>
+    dplyr::count(
+      .data$patient_id,
+      .data$assessment,
+      name = "sleep_count"
+    ) |>
     dplyr::filter(.data$sleep_count != 1L) |>
     nrow()
   missing_sleep_rows <- dplyr::anti_join(
-    x = study_sessions |>
-      dplyr::select("session_id"),
-    y = sleep_assessments |>
-      dplyr::select("session_id"),
-    by = "session_id"
+    x = expected_assessments,
+    y = observed_assessments,
+    by = c("patient_id", "assessment")
   )
   orphaned_sleep_rows <- dplyr::anti_join(
-    x = sleep_assessments |>
-      dplyr::select("session_id"),
-    y = study_sessions |>
-      dplyr::select("session_id"),
-    by = "session_id"
+    x = observed_assessments,
+    y = expected_assessments,
+    by = c("patient_id", "assessment")
   )
 
   if (duplicate_sleep_rows > 0L || nrow(missing_sleep_rows) > 0L ||
       nrow(orphaned_sleep_rows) > 0L) {
     rlang::abort(
-      message = "Each session must have exactly one linked sleep assessment."
+      message = stringr::str_c(
+        "Each patient must have exactly one sleep assessment in both ",
+        "assessment types."
+      )
     )
   }
 }
@@ -2307,7 +2321,10 @@ assert_raw_value_types <- function(tables) {
         column_names <- names(data)
         allowed_integer <- column_names == "source_row_number" |
           (
-            table_name == "physiological_assessments" &
+            table_name %in% c(
+              "physiological_assessments",
+              "sleep_assessments"
+            ) &
               column_names == "assessment_id"
           )
         is_date_column <- stringr::str_detect(
@@ -2374,7 +2391,7 @@ validate_transformed_tables <- function(tables) {
     physiological_assessments = tables$physiological_assessments,
     study_sessions = tables$study_sessions
   )
-  assert_sleep_sessions(
+  assert_sleep_assessments(
     sleep_assessments = tables$sleep_assessments,
     study_sessions = tables$study_sessions
   )
@@ -2485,8 +2502,11 @@ create_duckdb_schema <- function(connection) {
       FOREIGN KEY ("patient_id") REFERENCES "patients" ("patient_id")
     )',
     'CREATE TABLE "sleep_assessments" (
-      "sleep_assessment_id" VARCHAR PRIMARY KEY,
-      "session_id" VARCHAR NOT NULL UNIQUE,
+      "assessment_id" INTEGER PRIMARY KEY,
+      "patient_id" VARCHAR NOT NULL,
+      "assessment" VARCHAR NOT NULL CHECK (
+        "assessment" IN (\'with_physiotherapy\', \'without_physiotherapy\')
+      ),
       "time_in_bed" DOUBLE,
       "total_sleep_time" DOUBLE,
       "sleep_efficiency" VARCHAR,
@@ -2504,7 +2524,8 @@ create_duckdb_schema <- function(connection) {
       "arousal_index" DOUBLE,
       "rcsq_score" VARCHAR,
       "source_row_number" INTEGER NOT NULL,
-      FOREIGN KEY ("session_id") REFERENCES "study_sessions" ("session_id")
+      UNIQUE ("patient_id", "assessment"),
+      FOREIGN KEY ("patient_id") REFERENCES "patients" ("patient_id")
     )'
   )
 

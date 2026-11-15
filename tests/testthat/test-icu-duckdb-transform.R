@@ -221,21 +221,27 @@ testthat::test_that(
       add = TRUE
     )
 
+    sleep_assessment_columns <- DBI::dbListFields(
+      conn = connection,
+      name = "sleep_assessments"
+    )
     sleep_values <- DBI::dbGetQuery(
       conn = connection,
       statement = stringr::str_c(
-        'SELECT "session_id", "time_in_bed", "total_sleep_time",',
+        'SELECT "assessment_id", "patient_id", "assessment", "time_in_bed",',
+        '"total_sleep_time",',
         '"wake_after_sleep_onset", "sleep_latency", "stage1_duration",',
         '"stage2_duration", "slow_wave_sleep_duration", "arousal_index"',
         'FROM "sleep_assessments"',
-        'ORDER BY "session_id"',
+        'ORDER BY "assessment_id"',
         sep = " "
       )
     )
     sleep_types <- DBI::dbGetQuery(
       conn = connection,
       statement = stringr::str_c(
-        'SELECT typeof("time_in_bed") AS "time_in_bed_type",',
+        'SELECT typeof("assessment_id") AS "assessment_id_type",',
+        'typeof("time_in_bed") AS "time_in_bed_type",',
         'typeof("total_sleep_time") AS "total_sleep_time_type",',
         'typeof("wake_after_sleep_onset") AS "wake_after_sleep_onset_type",',
         'typeof("sleep_latency") AS "sleep_latency_type",',
@@ -249,9 +255,23 @@ testthat::test_that(
       )
     )
 
+    testthat::expect_false(
+      "sleep_assessment_id" %in% sleep_assessment_columns
+    )
+    testthat::expect_false("session_id" %in% sleep_assessment_columns)
+    testthat::expect_true(all(c(
+      "assessment_id",
+      "patient_id",
+      "assessment"
+    ) %in% sleep_assessment_columns))
+    testthat::expect_equal(sleep_values$assessment_id, 1L:2L)
     testthat::expect_identical(
-      sleep_values$session_id,
-      c("1::withPhysiotherapy", "1::withoutPhysiotherapy")
+      sleep_values$patient_id,
+      c("1", "1")
+    )
+    testthat::expect_identical(
+      sleep_values$assessment,
+      c("with_physiotherapy", "without_physiotherapy")
     )
     testthat::expect_identical(sleep_values$time_in_bed, c(525, 495))
     testthat::expect_identical(sleep_values$total_sleep_time, c(465, 450))
@@ -269,7 +289,7 @@ testthat::test_that(
     testthat::expect_identical(sleep_values$arousal_index, c(12, 18.5))
     testthat::expect_identical(
       as.character(sleep_types[1L, ]),
-      rep(x = "DOUBLE", times = 8L)
+      c("INTEGER", rep(x = "DOUBLE", times = 8L))
     )
   }
 )
