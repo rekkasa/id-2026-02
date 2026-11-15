@@ -804,6 +804,56 @@ parse_date_column <- function(
   )
 }
 
+format_clock_time <- function(hours, minutes, seconds) {
+  stringr::str_c(
+    stringr::str_pad(
+      string = hours,
+      width = 2L,
+      side = "left",
+      pad = "0"
+    ),
+    ":",
+    stringr::str_pad(
+      string = minutes,
+      width = 2L,
+      side = "left",
+      pad = "0"
+    ),
+    ":",
+    stringr::str_pad(
+      string = seconds,
+      width = 2L,
+      side = "left",
+      pad = "0"
+    )
+  )
+}
+
+parse_time_seconds <- function(seconds, raw_kind) {
+  rounded_seconds <- round(seconds)
+  if (!is.finite(seconds) || seconds < 0 || rounded_seconds >= 86400) {
+    return(list(
+      time = NA_character_,
+      raw_kind = stringr::str_c(raw_kind, "_out_of_range"),
+      valid = FALSE
+    ))
+  }
+
+  hours <- rounded_seconds %/% 3600
+  remaining_seconds <- rounded_seconds %% 3600
+  minutes <- remaining_seconds %/% 60
+  seconds <- remaining_seconds %% 60
+  list(
+    time = format_clock_time(
+      hours = hours,
+      minutes = minutes,
+      seconds = seconds
+    ),
+    raw_kind = raw_kind,
+    valid = TRUE
+  )
+}
+
 parse_excel_time_serial <- function(serial, raw_kind) {
   if (!is.finite(serial) || serial < 0 || serial >= 1) {
     return(list(
@@ -813,27 +863,9 @@ parse_excel_time_serial <- function(serial, raw_kind) {
     ))
   }
 
-  total_minutes <- floor(serial * 24 * 60)
-  hours <- total_minutes %/% 60
-  minutes <- total_minutes %% 60
-  list(
-    time = stringr::str_c(
-      stringr::str_pad(
-        string = hours,
-        width = 2L,
-        side = "left",
-        pad = "0"
-      ),
-      ":",
-      stringr::str_pad(
-        string = minutes,
-        width = 2L,
-        side = "left",
-        pad = "0"
-      )
-    ),
-    raw_kind = raw_kind,
-    valid = TRUE
+  parse_time_seconds(
+    seconds = serial * 86400,
+    raw_kind = raw_kind
   )
 }
 
@@ -848,16 +880,30 @@ parse_time_cell <- function(value) {
 
   if (inherits(value, what = "POSIXt")) {
     return(list(
-      time = format(value, format = "%H:%M", tz = "UTC"),
+      time = format(value, format = "%H:%M:%S", tz = "UTC"),
       raw_kind = "excel_datetime",
       valid = TRUE
     ))
   }
 
+  if (inherits(value, what = "difftime")) {
+    return(parse_time_seconds(
+      seconds = as.numeric(value, units = "secs"),
+      raw_kind = "duration_seconds"
+    ))
+  }
+
   if (is.numeric(value)) {
-    return(parse_excel_time_serial(
-      serial = value,
-      raw_kind = "numeric_serial"
+    if (value < 1) {
+      return(parse_excel_time_serial(
+        serial = value,
+        raw_kind = "numeric_serial"
+      ))
+    }
+
+    return(parse_time_seconds(
+      seconds = value,
+      raw_kind = "numeric_seconds"
     ))
   }
 
@@ -874,20 +920,75 @@ parse_time_cell <- function(value) {
     string = normalized_value,
     pattern = "^[0-9]+(?:\\.[0-9]+)?$"
   )) {
-    return(parse_excel_time_serial(
-      serial = as.numeric(normalized_value),
-      raw_kind = "text_serial"
+    numeric_value <- as.numeric(normalized_value)
+    if (numeric_value < 1) {
+      return(parse_excel_time_serial(
+        serial = numeric_value,
+        raw_kind = "text_serial"
+      ))
+    }
+
+    return(parse_time_seconds(
+      seconds = numeric_value,
+      raw_kind = "text_seconds"
     ))
   }
 
-  matches_format <- stringr::str_detect(
+  twenty_four_hour_components <- stringr::str_match(
     string = normalized_value,
-    pattern = "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+    pattern = "^([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9]))?$"
   )
+  matches_twenty_four_hour <- !is.na(twenty_four_hour_components[, 1L])
+  if (matches_twenty_four_hour) {
+    time <- format_clock_time(
+      hours = as.integer(twenty_four_hour_components[, 2L]),
+      minutes = as.integer(twenty_four_hour_components[, 3L]),
+      seconds = if (is.na(twenty_four_hour_components[, 4L])) {
+        0L
+      } else {
+        as.integer(twenty_four_hour_components[, 4L])
+      }
+    )
+    return(list(
+      time = time,
+      raw_kind = "text_hhmmss",
+      valid = TRUE
+    ))
+  }
+
+  twelve_hour_components <- stringr::str_match(
+    string = normalized_value,
+    pattern = "^([1-9]|1[0-2]):([0-5][0-9])(?::([0-5][0-9]))? ([AaPp][Mm])$"
+  )
+  matches_twelve_hour <- !is.na(twelve_hour_components[, 1L])
+  if (matches_twelve_hour) {
+    hours <- as.integer(twelve_hour_components[, 2L])
+    meridiem <- stringr::str_to_upper(twelve_hour_components[, 5L])
+    if (meridiem == "AM" && hours == 12L) {
+      hours <- 0L
+    } else if (meridiem == "PM" && hours < 12L) {
+      hours <- hours + 12L
+    }
+
+    return(list(
+      time = format_clock_time(
+        hours = hours,
+        minutes = as.integer(twelve_hour_components[, 3L]),
+        seconds = if (is.na(twelve_hour_components[, 4L])) {
+          0L
+        } else {
+          as.integer(twelve_hour_components[, 4L])
+        }
+      ),
+      raw_kind = "text_ampm",
+      valid = TRUE
+    ))
+  }
+
   list(
-    time = if (matches_format) normalized_value else NA_character_,
-    raw_kind = if (matches_format) "text_hhmm" else "unsupported_text",
-    valid = matches_format
+    time = NA_character_,
+    raw_kind = "unsupported_text",
+    valid = FALSE
   )
 }
 

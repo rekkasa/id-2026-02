@@ -46,6 +46,42 @@ testthat::test_that(
 )
 
 testthat::test_that(
+  desc = "the time parser normalizes durations and AM/PM clock times",
+  code = {
+    clock_times <- purrr::map_chr(
+      .x = list(
+        as.difftime(tim = 82800, units = "secs"),
+        82800,
+        23 / 24,
+        as.POSIXct(x = "2026-01-01 23:00:00", tz = "UTC"),
+        "11:00:00 PM",
+        "23:00:00"
+      ),
+      .f = function(value) parse_time_cell(value = value)$time
+    )
+
+    testthat::expect_identical(clock_times, rep(x = "23:00:00", times = 6L))
+    testthat::expect_identical(
+      parse_time_cell(value = "12:00:00 AM")$time,
+      "00:00:00"
+    )
+    testthat::expect_identical(
+      parse_time_cell(value = "12:00:00 PM")$time,
+      "12:00:00"
+    )
+
+    next_day_duration <- parse_time_cell(
+      value = as.difftime(tim = 86400, units = "secs")
+    )
+    testthat::expect_false(next_day_duration$valid)
+    testthat::expect_identical(
+      next_day_duration$raw_kind,
+      "duration_seconds_out_of_range"
+    )
+  }
+)
+
+testthat::test_that(
   desc = "the transformer creates a paired name-free DuckDB database",
   code = {
     workbook_path <- fs::file_temp(ext = ".xlsx")
@@ -61,7 +97,10 @@ testthat::test_that(
       },
       add = TRUE
     )
-    write_synthetic_workbook(workbook_path = workbook_path)
+    write_synthetic_workbook(
+      workbook_path = workbook_path,
+      admission_times = "11:00:00 PM"
+    )
 
     row_counts <- transform_icu_workbook(
       input_path = workbook_path,
@@ -168,7 +207,7 @@ testthat::test_that(
         sep = " "
       )
     )
-    testthat::expect_identical(admission_times$admission_time, "14:30:00")
+    testthat::expect_identical(admission_times$admission_time, "23:00:00")
     testthat::expect_identical(
       admission_times$mechanical_ventilation_start_time,
       "15:45:00"
