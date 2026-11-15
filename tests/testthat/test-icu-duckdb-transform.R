@@ -149,6 +149,36 @@ testthat::test_that(
       as.Date(x = "2026-01-03")
     )
 
+    admission_times <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT CAST("admission_time" AS VARCHAR) AS "admission_time",',
+        'CAST("mechanical_ventilation_start_time" AS VARCHAR)',
+        'AS "mechanical_ventilation_start_time" FROM "icu_admissions"',
+        sep = " "
+      )
+    )
+    time_types <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT typeof("admission_time") AS "admission_time_type",',
+        'typeof("mechanical_ventilation_start_time")',
+        'AS "mechanical_ventilation_start_time_type"',
+        'FROM "icu_admissions"',
+        sep = " "
+      )
+    )
+    testthat::expect_identical(admission_times$admission_time, "14:30:00")
+    testthat::expect_identical(
+      admission_times$mechanical_ventilation_start_time,
+      "15:45:00"
+    )
+    testthat::expect_identical(time_types$admission_time_type, "TIME")
+    testthat::expect_identical(
+      time_types$mechanical_ventilation_start_time_type,
+      "TIME"
+    )
+
     connection_dates <- DBI::dbGetQuery(
       conn = connection,
       statement = stringr::str_c(
@@ -406,6 +436,20 @@ testthat::test_that(
     )
     overwrite_excel_cell(
       workbook_path = workbook_path,
+      sheet_name = "crf data",
+      value = 0.5,
+      column_number = 10L,
+      row_number = 2L
+    )
+    overwrite_excel_cell(
+      workbook_path = workbook_path,
+      sheet_name = "crf data",
+      value = "23:15",
+      column_number = 22L,
+      row_number = 2L
+    )
+    overwrite_excel_cell(
+      workbook_path = workbook_path,
       sheet_name = "ΜΕ ΦΥΣΙΚΟΘΕΡΑΠΕΙΑ",
       value = connection_datetime,
       column_number = 3L,
@@ -440,6 +484,15 @@ testthat::test_that(
         'WHERE "condition" = \'withPhysiotherapy\''
       )
     )
+    admission_times <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT CAST("admission_time" AS VARCHAR) AS "admission_time",',
+        'CAST("mechanical_ventilation_start_time" AS VARCHAR)',
+        'AS "mechanical_ventilation_start_time" FROM "icu_admissions"',
+        sep = " "
+      )
+    )
     testthat::expect_identical(admission_dates$admission_date, admission_date)
     testthat::expect_identical(
       admission_dates$mechanical_ventilation_start_date,
@@ -452,6 +505,45 @@ testthat::test_that(
     testthat::expect_identical(
       connection_dates$connection_date,
       as.Date(x = connection_datetime)
+    )
+    testthat::expect_identical(admission_times$admission_time, "12:00:00")
+    testthat::expect_identical(
+      admission_times$mechanical_ventilation_start_time,
+      "23:15:00"
+    )
+  }
+)
+
+testthat::test_that(
+  desc = "the transformer rejects invalid 24-hour admission times",
+  code = {
+    workbook_path <- fs::file_temp(ext = ".xlsx")
+    database_path <- fs::file_temp(ext = ".duckdb")
+    on.exit(
+      expr = {
+        paths <- c(workbook_path, database_path)
+        existing_paths <- paths[fs::file_exists(path = paths)]
+        if (length(existing_paths) > 0L) {
+          fs::file_delete(path = existing_paths)
+        }
+      },
+      add = TRUE
+    )
+    write_synthetic_workbook(
+      workbook_path = workbook_path,
+      admission_times = "24:00"
+    )
+
+    testthat::expect_error(
+      object = transform_icu_workbook(
+        input_path = workbook_path,
+        database_path = database_path
+      ),
+      regexp = stringr::str_c(
+        "invalid 24-hour HH:MM values in 'admission_time' at ",
+        "Excel row\\(s): ",
+        "2 \\(types: unsupported_text=1\\)"
+      )
     )
   }
 )

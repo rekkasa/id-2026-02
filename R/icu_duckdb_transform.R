@@ -352,6 +352,11 @@ database_table_names <- c(
   sleep_assessments = "sleep_assessments"
 )
 
+time_of_day_column_names <- c(
+  "admission_time",
+  "mechanical_ventilation_start_time"
+)
+
 database_column_names <- list(
   patients = c(
     patient_id = "patient_id",
@@ -799,6 +804,136 @@ parse_date_column <- function(
   )
 }
 
+parse_excel_time_serial <- function(serial, raw_kind) {
+  if (!is.finite(serial) || serial < 0 || serial >= 1) {
+    return(list(
+      time = NA_character_,
+      raw_kind = stringr::str_c(raw_kind, "_out_of_range"),
+      valid = FALSE
+    ))
+  }
+
+  total_minutes <- floor(serial * 24 * 60)
+  hours <- total_minutes %/% 60
+  minutes <- total_minutes %% 60
+  list(
+    time = stringr::str_c(
+      stringr::str_pad(
+        string = hours,
+        width = 2L,
+        side = "left",
+        pad = "0"
+      ),
+      ":",
+      stringr::str_pad(
+        string = minutes,
+        width = 2L,
+        side = "left",
+        pad = "0"
+      )
+    ),
+    raw_kind = raw_kind,
+    valid = TRUE
+  )
+}
+
+parse_time_cell <- function(value) {
+  if (is_missing_source_value(value)) {
+    return(list(
+      time = NA_character_,
+      raw_kind = "blank",
+      valid = TRUE
+    ))
+  }
+
+  if (inherits(value, what = "POSIXt")) {
+    return(list(
+      time = format(value, format = "%H:%M", tz = "UTC"),
+      raw_kind = "excel_datetime",
+      valid = TRUE
+    ))
+  }
+
+  if (is.numeric(value)) {
+    return(parse_excel_time_serial(
+      serial = value,
+      raw_kind = "numeric_serial"
+    ))
+  }
+
+  if (!is.character(value)) {
+    return(list(
+      time = NA_character_,
+      raw_kind = "unsupported_type",
+      valid = FALSE
+    ))
+  }
+
+  normalized_value <- normalize_text(value)
+  if (stringr::str_detect(
+    string = normalized_value,
+    pattern = "^[0-9]+(?:\\.[0-9]+)?$"
+  )) {
+    return(parse_excel_time_serial(
+      serial = as.numeric(normalized_value),
+      raw_kind = "text_serial"
+    ))
+  }
+
+  matches_format <- stringr::str_detect(
+    string = normalized_value,
+    pattern = "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+  )
+  list(
+    time = if (matches_format) normalized_value else NA_character_,
+    raw_kind = if (matches_format) "text_hhmm" else "unsupported_text",
+    valid = matches_format
+  )
+}
+
+parse_time_column <- function(
+    values,
+    column_name,
+    source_sheet,
+    source_row_numbers) {
+  parsed_cells <- purrr::map(
+    .x = values,
+    .f = parse_time_cell
+  )
+  valid_values <- purrr::map_lgl(
+    .x = parsed_cells,
+    .f = function(parsed_cell) parsed_cell$valid
+  )
+
+  if (any(!valid_values)) {
+    invalid_rows <- source_row_numbers[!valid_values]
+    invalid_kinds <- purrr::map_chr(
+      .x = parsed_cells[!valid_values],
+      .f = function(parsed_cell) parsed_cell$raw_kind
+    ) |>
+      tibble::tibble(raw_kind = _) |>
+      dplyr::count(.data$raw_kind, name = "row_count") |>
+      dplyr::transmute(
+        summary = stringr::str_c(.data$raw_kind, "=", .data$row_count)
+      ) |>
+      dplyr::pull(var = "summary") |>
+      stringr::str_c(collapse = ", ")
+    rlang::abort(
+      message = glue::glue(
+        "Worksheet '{source_sheet}' contains invalid 24-hour HH:MM values ",
+        "in '{column_name}' at Excel row(s): ",
+        "{stringr::str_c(invalid_rows, collapse = ', ')} ",
+        "(types: {invalid_kinds})."
+      )
+    )
+  }
+
+  purrr::map_chr(
+    .x = parsed_cells,
+    .f = function(parsed_cell) parsed_cell$time
+  )
+}
+
 parse_date_columns <- function(source_rows, source_sheet) {
   date_columns <- names(source_rows)[stringr::str_detect(
     string = names(source_rows),
@@ -807,6 +942,24 @@ parse_date_columns <- function(source_rows, source_sheet) {
 
   for (column_name in date_columns) {
     source_rows[[column_name]] <- parse_date_column(
+      values = source_rows[[column_name]],
+      column_name = column_name,
+      source_sheet = source_sheet,
+      source_row_numbers = source_rows$source_row_number
+    )
+  }
+
+  source_rows
+}
+
+parse_time_columns <- function(source_rows, source_sheet) {
+  time_columns <- intersect(
+    x = time_of_day_column_names,
+    y = names(source_rows)
+  )
+
+  for (column_name in time_columns) {
+    source_rows[[column_name]] <- parse_time_column(
       values = source_rows[[column_name]],
       column_name = column_name,
       source_sheet = source_sheet,
@@ -828,11 +981,13 @@ read_source_rows <- function(input_path, sheet_layout) {
     x = seq_len(sheet_layout$column_count),
     y = 2L
   )
-  date_column_positions <- source_column_positions[stringr::str_detect(
-    string = sheet_layout$internal_names,
-    pattern = "date"
-  )]
-  column_types[date_column_positions] <- "list"
+  typed_column_positions <- source_column_positions[
+    stringr::str_detect(
+      string = sheet_layout$internal_names,
+      pattern = "date"
+    ) | sheet_layout$internal_names %in% time_of_day_column_names
+  ]
+  column_types[typed_column_positions] <- "list"
 
   source_rows <- readxl::read_excel(
     path = input_path,
@@ -876,7 +1031,11 @@ read_source_rows <- function(input_path, sheet_layout) {
       source_sheet = sheet_layout$sheet_name
     )
 
-  parse_date_columns(
+  source_rows <- parse_date_columns(
+    source_rows = source_rows,
+    source_sheet = sheet_layout$sheet_name
+  )
+  parse_time_columns(
     source_rows = source_rows,
     source_sheet = sheet_layout$sheet_name
   )
@@ -1604,10 +1763,10 @@ create_duckdb_schema <- function(connection) {
       "apache_ii_score" VARCHAR,
       "sex" VARCHAR,
       "admission_date" DATE,
-      "admission_time" VARCHAR,
+      "admission_time" TIME,
       "admission_reason" VARCHAR,
       "mechanical_ventilation_start_date" DATE,
-      "mechanical_ventilation_start_time" VARCHAR,
+      "mechanical_ventilation_start_time" TIME,
       "mechanical_ventilation_indication" VARCHAR,
       "mechanical_ventilation_days" VARCHAR,
       "icu_stay_days" VARCHAR,
