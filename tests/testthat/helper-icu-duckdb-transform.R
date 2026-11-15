@@ -16,22 +16,27 @@ write_excel_row <- function(workbook, sheet_name, row_values, row_number) {
   )
 }
 
-make_source_row <- function(column_count, source_record_number, patient_id) {
+make_source_row <- function(column_count, patient_id) {
   values <- stringr::str_c("value_", seq_len(column_count))
-  values[[1L]] <- source_record_number
+  values[[1L]] <- patient_id
   values[[2L]] <- "Synthetic Name"
-  values[[8L]] <- patient_id
 
   values
 }
 
 write_synthetic_workbook <- function(
     workbook_path,
+    patient_ids = "1",
+    eama_references = "EAMA-001",
+    physiotherapy_patient_ids = patient_ids,
+    admission_dates = "01/01/2026",
+    mechanical_ventilation_start_dates = "02/01/2026",
+    icu_discharge_dates = "03/01/2026",
+    connection_dates = "04/01/2026",
     include_control = TRUE,
     duplicate_physiotherapy = FALSE,
     invalid_physio_header = FALSE,
-    missing_crf_patient_id = FALSE,
-    physiotherapy_source_record_number = "1") {
+    missing_crf_patient_id = FALSE) {
   layout <- workbook_layout()
   workbook <- openxlsx::createWorkbook()
 
@@ -69,65 +74,113 @@ write_synthetic_workbook <- function(
     }
   )
 
-  crf_row <- make_source_row(
-    column_count = layout$crf$column_count,
-    source_record_number = "1",
-    patient_id = if (missing_crf_patient_id) NA_character_ else "EAMA-001"
+  eama_references <- rep(
+    x = eama_references,
+    length.out = length(patient_ids)
   )
-  write_excel_row(
-    workbook = workbook,
-    sheet_name = layout$crf$sheet_name,
-    row_values = crf_row,
-    row_number = layout$crf$first_data_row
+  admission_dates <- rep(x = admission_dates, length.out = length(patient_ids))
+  mechanical_ventilation_start_dates <- rep(
+    x = mechanical_ventilation_start_dates,
+    length.out = length(patient_ids)
+  )
+  icu_discharge_dates <- rep(
+    x = icu_discharge_dates,
+    length.out = length(patient_ids)
   )
 
-  physiotherapy_row <- make_source_row(
-    column_count = layout$physiotherapy$column_count,
-    source_record_number = physiotherapy_source_record_number,
-    patient_id = NA_character_
+  purrr::walk(
+    .x = seq_along(patient_ids),
+    .f = function(index) {
+      crf_row <- make_source_row(
+        column_count = layout$crf$column_count,
+        patient_id = if (missing_crf_patient_id && index == 1L) {
+          NA_character_
+        } else {
+          patient_ids[[index]]
+        }
+      )
+      crf_row[[8L]] <- eama_references[[index]]
+      crf_row[[9L]] <- admission_dates[[index]]
+      crf_row[[21L]] <- mechanical_ventilation_start_dates[[index]]
+      crf_row[[26L]] <- icu_discharge_dates[[index]]
+      write_excel_row(
+        workbook = workbook,
+        sheet_name = layout$crf$sheet_name,
+        row_values = crf_row,
+        row_number = layout$crf$first_data_row + index - 1L
+      )
+    }
   )
-  physiotherapy_row[[3L]] <- "2026-01-01"
-  physiotherapy_row[[30L]] <- "0,40"
-  write_excel_row(
-    workbook = workbook,
-    sheet_name = layout$physiotherapy$sheet_name,
-    row_values = physiotherapy_row,
-    row_number = layout$physiotherapy$first_data_row
+
+  connection_dates <- rep(
+    x = connection_dates,
+    length.out = length(physiotherapy_patient_ids)
+  )
+  purrr::walk(
+    .x = seq_along(physiotherapy_patient_ids),
+    .f = function(index) {
+      physiotherapy_row <- make_source_row(
+        column_count = layout$physiotherapy$column_count,
+        patient_id = physiotherapy_patient_ids[[index]]
+      )
+      physiotherapy_row[[3L]] <- connection_dates[[index]]
+      physiotherapy_row[[30L]] <- "0,40"
+      write_excel_row(
+        workbook = workbook,
+        sheet_name = layout$physiotherapy$sheet_name,
+        row_values = physiotherapy_row,
+        row_number = layout$physiotherapy$first_data_row + index - 1L
+      )
+    }
   )
   if (duplicate_physiotherapy) {
+    duplicate_row <- make_source_row(
+      column_count = layout$physiotherapy$column_count,
+      patient_id = physiotherapy_patient_ids[[1L]]
+    )
+    duplicate_row[[3L]] <- connection_dates[[1L]]
+    duplicate_row[[30L]] <- "0,40"
     write_excel_row(
       workbook = workbook,
       sheet_name = layout$physiotherapy$sheet_name,
-      row_values = physiotherapy_row,
-      row_number = layout$physiotherapy$first_data_row + 1L
+      row_values = duplicate_row,
+      row_number = layout$physiotherapy$first_data_row +
+        length(physiotherapy_patient_ids)
     )
   }
 
   if (include_control) {
-    control_row <- make_source_row(
-      column_count = layout$control$column_count,
-      source_record_number = "1",
-      patient_id = NA_character_
-    )
-    control_row[[3L]] <- "2026-01-02"
-    write_excel_row(
-      workbook = workbook,
-      sheet_name = layout$control$sheet_name,
-      row_values = control_row,
-      row_number = layout$control$first_data_row
+    purrr::walk(
+      .x = seq_along(patient_ids),
+      .f = function(index) {
+        control_row <- make_source_row(
+          column_count = layout$control$column_count,
+          patient_id = patient_ids[[index]]
+        )
+        write_excel_row(
+          workbook = workbook,
+          sheet_name = layout$control$sheet_name,
+          row_values = control_row,
+          row_number = layout$control$first_data_row + index - 1L
+        )
+      }
     )
   }
 
-  sleep_row <- make_source_row(
-    column_count = layout$sleep$column_count,
-    source_record_number = "1",
-    patient_id = NA_character_
-  )
-  write_excel_row(
-    workbook = workbook,
-    sheet_name = layout$sleep$sheet_name,
-    row_values = sleep_row,
-    row_number = layout$sleep$first_data_row
+  purrr::walk(
+    .x = seq_along(patient_ids),
+    .f = function(index) {
+      sleep_row <- make_source_row(
+        column_count = layout$sleep$column_count,
+        patient_id = patient_ids[[index]]
+      )
+      write_excel_row(
+        workbook = workbook,
+        sheet_name = layout$sleep$sheet_name,
+        row_values = sleep_row,
+        row_number = layout$sleep$first_data_row + index - 1L
+      )
+    }
   )
 
   openxlsx::saveWorkbook(

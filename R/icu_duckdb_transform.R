@@ -51,13 +51,13 @@ workbook_layout <- function() {
       ),
       group_headers = NULL,
       internal_names = c(
-        "source_record_number",
+        "patient_id",
         "age_years",
         "height_cm",
         "weight_kg",
         "apache_ii_score",
         "sex",
-        "patient_id",
+        "eama_reference",
         "admission_date",
         "admission_time",
         "admission_reason",
@@ -131,7 +131,7 @@ workbook_layout <- function() {
         "26" = "ΜΕΤΑ ΤΗ ΦΥΣΙΚΟΘΕΡΑΠΕΙΑ"
       ),
       internal_names = c(
-        "source_record_number",
+        "source_patient_id",
         "connection_date",
         "rass_score",
         "vas_score",
@@ -220,7 +220,7 @@ workbook_layout <- function() {
         "21" = "ΤΕΛΟΣ ΤΗΣ ΚΑΤΑΓΡΑΦΗΣ"
       ),
       internal_names = c(
-        "source_record_number",
+        "source_patient_id",
         "rass_score",
         "vas_score",
         "cam_icu_result",
@@ -304,7 +304,7 @@ workbook_layout <- function() {
         "19" = "ΜΕ ΦΥΣΙΚΟΘΕΡΑΠΕΙΑ"
       ),
       internal_names = c(
-        "source_record_number",
+        "source_patient_id",
         "without_time_in_bed",
         "without_total_sleep_time",
         "without_sleep_efficiency",
@@ -355,7 +355,7 @@ database_table_names <- c(
 database_column_names <- list(
   patients = c(
     patient_id = "patient_id",
-    source_record_number = "source_record_number",
+    eama_reference = "eama_reference",
     source_row_number = "source_row_number"
   ),
   icu_admissions = c(
@@ -580,6 +580,60 @@ validate_workbook_layout <- function(input_path) {
   layout
 }
 
+parse_ddmmyyyy <- function(
+    values,
+    column_name,
+    source_sheet,
+    source_row_numbers) {
+  missing_values <- is_missing_text(values)
+  matches_format <- stringr::str_detect(
+    string = values,
+    pattern = "^[0-9]{2}/[0-9]{2}/[0-9]{4}$"
+  )
+  matches_format[is.na(matches_format)] <- FALSE
+  parsed_values <- as.Date(
+    x = rep(x = NA_character_, times = length(values)),
+    format = "%d/%m/%Y"
+  )
+  parseable_values <- !missing_values & matches_format
+  parsed_values[parseable_values] <- as.Date(
+    x = values[parseable_values],
+    format = "%d/%m/%Y"
+  )
+  invalid_values <- !missing_values & (!matches_format | is.na(parsed_values))
+
+  if (any(invalid_values)) {
+    invalid_rows <- source_row_numbers[invalid_values]
+    rlang::abort(
+      message = glue::glue(
+        "Worksheet '{source_sheet}' contains invalid dd/mm/yyyy values in ",
+        "'{column_name}' at Excel row(s): ",
+        "{stringr::str_c(invalid_rows, collapse = ', ')}."
+      )
+    )
+  }
+
+  parsed_values
+}
+
+parse_date_columns <- function(source_rows, source_sheet) {
+  date_columns <- names(source_rows)[stringr::str_detect(
+    string = names(source_rows),
+    pattern = "date"
+  )]
+
+  for (column_name in date_columns) {
+    source_rows[[column_name]] <- parse_ddmmyyyy(
+      values = source_rows[[column_name]],
+      column_name = column_name,
+      source_sheet = source_sheet,
+      source_row_numbers = source_rows$source_row_number
+    )
+  }
+
+  source_rows
+}
+
 read_source_rows <- function(input_path, sheet_layout) {
   data_range <- readxl::cell_limits(
     ul = c(sheet_layout$first_data_row, 1L),
@@ -615,7 +669,7 @@ read_source_rows <- function(input_path, sheet_layout) {
 
   names(source_rows) <- sheet_layout$internal_names
 
-  source_rows |>
+  source_rows <- source_rows |>
     dplyr::mutate(
       source_row_number = as.integer(dplyr::row_number()) +
         sheet_layout$first_data_row - 1L
@@ -629,6 +683,11 @@ read_source_rows <- function(input_path, sheet_layout) {
     dplyr::mutate(
       source_sheet = sheet_layout$sheet_name
     )
+
+  parse_date_columns(
+    source_rows = source_rows,
+    source_sheet = sheet_layout$sheet_name
+  )
 }
 
 write_diagnostic_log <- function(
@@ -743,21 +802,11 @@ build_crf_tables <- function(crf_rows, diagnostic_log_path = NULL) {
     column_name = "patient_id",
     context = "The CRF worksheet"
   )
-  assert_non_missing(
-    data = crf_rows,
-    column_name = "source_record_number",
-    context = "The CRF worksheet"
-  )
-  assert_unique(
-    data = crf_rows,
-    column_name = "source_record_number",
-    context = "The CRF worksheet"
-  )
 
   patients <- crf_rows |>
     dplyr::transmute(
       patient_id = .data$patient_id,
-      source_record_number = .data$source_record_number,
+      eama_reference = .data$eama_reference,
       source_row_number = .data$source_row_number
     )
 
@@ -814,7 +863,7 @@ build_crf_tables <- function(crf_rows, diagnostic_log_path = NULL) {
 
   patient_index <- patients |>
     dplyr::transmute(
-      record_key = normalize_record_key(.data$source_record_number),
+      patient_key = normalize_record_key(.data$patient_id),
       patient_id = .data$patient_id
     )
 
@@ -833,11 +882,11 @@ link_patient_rows <- function(
     diagnostic_log_path = NULL) {
   linked_rows <- rows |>
     dplyr::mutate(
-      record_key = normalize_record_key(.data$source_record_number)
+      patient_key = normalize_record_key(.data$source_patient_id)
     ) |>
     dplyr::left_join(
       y = patient_index,
-      by = "record_key"
+      by = "patient_key"
     )
 
   assert_non_missing(
@@ -882,7 +931,7 @@ build_session_tables <- function(
       source_description = "The no-physiotherapy worksheet",
       diagnostic_log_path = diagnostic_log_path
     ) |>
-    dplyr::mutate(connection_date = NA_character_) |>
+    dplyr::mutate(connection_date = as.Date(x = NA)) |>
     add_session_details(
       condition = "withoutPhysiotherapy",
       source_sheet = "withoutPhysiotherapy"
@@ -1288,22 +1337,37 @@ assert_no_name_columns <- function(tables) {
 }
 
 assert_raw_value_types <- function(tables) {
-  non_character_columns <- tables |>
+  invalid_value_columns <- tables |>
     purrr::imap(
       .f = function(data, table_name) {
-        allowed_integer <- names(data) == "source_row_number"
+        column_names <- names(data)
+        allowed_integer <- column_names == "source_row_number"
+        is_date_column <- stringr::str_detect(
+          string = column_names,
+          pattern = "date"
+        )
+        allowed_date <- purrr::map2_lgl(
+          .x = data,
+          .y = is_date_column,
+          .f = function(values, is_date_column) {
+            is_date_column && inherits(values, what = "Date")
+          }
+        )
         is_character_column <- purrr::map_lgl(
           .x = data,
           .f = is.character
         )
-        names(data)[!(allowed_integer | is_character_column)]
+        column_names[!(allowed_integer | allowed_date | is_character_column)]
       }
     ) |>
     purrr::compact()
 
-  if (length(non_character_columns) > 0L) {
+  if (length(invalid_value_columns) > 0L) {
     rlang::abort(
-      message = "All retained source values must remain character values."
+      message = stringr::str_c(
+        "Retained values must be character, except source_row_number and ",
+        "date columns."
+      )
     )
   }
 }
@@ -1313,11 +1377,6 @@ validate_transformed_tables <- function(tables) {
   assert_unique(
     data = tables$patients,
     column_name = "patient_id",
-    context = "The patients table"
-  )
-  assert_unique(
-    data = tables$patients,
-    column_name = "source_record_number",
     context = "The patients table"
   )
   assert_session_pairing(study_sessions = tables$study_sessions)
@@ -1341,7 +1400,7 @@ create_duckdb_schema <- function(connection) {
   statements <- c(
     'CREATE TABLE "patients" (
       "patient_id" VARCHAR PRIMARY KEY,
-      "source_record_number" VARCHAR NOT NULL UNIQUE,
+      "eama_reference" VARCHAR,
       "source_row_number" INTEGER NOT NULL
     )',
     'CREATE TABLE "icu_admissions" (
@@ -1352,15 +1411,15 @@ create_duckdb_schema <- function(connection) {
       "weight_kg" VARCHAR,
       "apache_ii_score" VARCHAR,
       "sex" VARCHAR,
-      "admission_date" VARCHAR,
+      "admission_date" DATE,
       "admission_time" VARCHAR,
       "admission_reason" VARCHAR,
-      "mechanical_ventilation_start_date" VARCHAR,
+      "mechanical_ventilation_start_date" DATE,
       "mechanical_ventilation_start_time" VARCHAR,
       "mechanical_ventilation_indication" VARCHAR,
       "mechanical_ventilation_days" VARCHAR,
       "icu_stay_days" VARCHAR,
-      "icu_discharge_date" VARCHAR,
+      "icu_discharge_date" DATE,
       "icu_outcome" VARCHAR,
       "hospital_outcome" VARCHAR,
       FOREIGN KEY ("patient_id") REFERENCES "patients" ("patient_id")
@@ -1379,7 +1438,7 @@ create_duckdb_schema <- function(connection) {
       "condition" VARCHAR NOT NULL CHECK (
         "condition" IN (\'withPhysiotherapy\', \'withoutPhysiotherapy\')
       ),
-      "connection_date" VARCHAR,
+      "connection_date" DATE,
       "source_sheet" VARCHAR NOT NULL,
       "source_row_number" INTEGER NOT NULL,
       UNIQUE ("patient_id", "condition"),

@@ -76,7 +76,174 @@ testthat::test_that(
       )
     )
     testthat::expect_identical(fraction_value[[1L, 1L]], "0,40")
+
+    patient_values <- DBI::dbGetQuery(
+      conn = connection,
+      statement = 'SELECT "patient_id", "eama_reference" FROM "patients"'
+    )
+    testthat::expect_identical(patient_values$patient_id, "1")
+    testthat::expect_identical(patient_values$eama_reference, "EAMA-001")
+
+    admission_dates <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT "admission_date", "mechanical_ventilation_start_date",',
+        '"icu_discharge_date" FROM "icu_admissions"'
+      )
+    )
+    testthat::expect_s3_class(admission_dates$admission_date, "Date")
+    testthat::expect_identical(
+      admission_dates$admission_date,
+      as.Date(x = "2026-01-01")
+    )
+    testthat::expect_identical(
+      admission_dates$mechanical_ventilation_start_date,
+      as.Date(x = "2026-01-02")
+    )
+    testthat::expect_identical(
+      admission_dates$icu_discharge_date,
+      as.Date(x = "2026-01-03")
+    )
+
+    connection_dates <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT "connection_date" FROM "study_sessions"',
+        'WHERE "condition" = \'withPhysiotherapy\''
+      )
+    )
+    testthat::expect_s3_class(connection_dates$connection_date, "Date")
+    testthat::expect_identical(
+      connection_dates$connection_date,
+      as.Date(x = "2026-01-04")
+    )
     testthat::expect_false(fs::file_exists(path = diagnostic_log_path))
+  }
+)
+
+testthat::test_that(
+  desc = "the transformer permits duplicate EAMA references",
+  code = {
+    workbook_path <- fs::file_temp(ext = ".xlsx")
+    database_path <- fs::file_temp(ext = ".duckdb")
+    on.exit(
+      expr = {
+        paths <- c(workbook_path, database_path)
+        existing_paths <- paths[fs::file_exists(path = paths)]
+        if (length(existing_paths) > 0L) {
+          fs::file_delete(path = existing_paths)
+        }
+      },
+      add = TRUE
+    )
+    write_synthetic_workbook(
+      workbook_path = workbook_path,
+      patient_ids = c("1", "2"),
+      eama_references = c("EAMA-001", "EAMA-001")
+    )
+
+    row_counts <- transform_icu_workbook(
+      input_path = workbook_path,
+      database_path = database_path
+    )
+    connection <- DBI::dbConnect(
+      drv = duckdb::duckdb(),
+      dbdir = database_path,
+      read_only = TRUE
+    )
+    on.exit(
+      expr = DBI::dbDisconnect(conn = connection, shutdown = TRUE),
+      add = TRUE
+    )
+
+    patient_values <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT "patient_id", "eama_reference" FROM "patients"',
+        'ORDER BY "patient_id"'
+      )
+    )
+    testthat::expect_equal(row_counts$patients, 2L)
+    testthat::expect_equal(row_counts$study_sessions, 4L)
+    testthat::expect_identical(patient_values$patient_id, c("1", "2"))
+    testthat::expect_identical(
+      patient_values$eama_reference,
+      c("EAMA-001", "EAMA-001")
+    )
+  }
+)
+
+testthat::test_that(
+  desc = "the transformer retains blank dates as database nulls",
+  code = {
+    workbook_path <- fs::file_temp(ext = ".xlsx")
+    database_path <- fs::file_temp(ext = ".duckdb")
+    on.exit(
+      expr = {
+        paths <- c(workbook_path, database_path)
+        existing_paths <- paths[fs::file_exists(path = paths)]
+        if (length(existing_paths) > 0L) {
+          fs::file_delete(path = existing_paths)
+        }
+      },
+      add = TRUE
+    )
+    write_synthetic_workbook(
+      workbook_path = workbook_path,
+      admission_dates = NA_character_
+    )
+
+    transform_icu_workbook(
+      input_path = workbook_path,
+      database_path = database_path
+    )
+    connection <- DBI::dbConnect(
+      drv = duckdb::duckdb(),
+      dbdir = database_path,
+      read_only = TRUE
+    )
+    on.exit(
+      expr = DBI::dbDisconnect(conn = connection, shutdown = TRUE),
+      add = TRUE
+    )
+
+    admission_dates <- DBI::dbGetQuery(
+      conn = connection,
+      statement = 'SELECT "admission_date" FROM "icu_admissions"'
+    )
+    testthat::expect_s3_class(admission_dates$admission_date, "Date")
+    testthat::expect_true(is.na(admission_dates$admission_date))
+  }
+)
+
+testthat::test_that(
+  desc = "the transformer rejects malformed and impossible dates",
+  code = {
+    workbook_path <- fs::file_temp(ext = ".xlsx")
+    database_path <- fs::file_temp(ext = ".duckdb")
+    on.exit(
+      expr = {
+        paths <- c(workbook_path, database_path)
+        existing_paths <- paths[fs::file_exists(path = paths)]
+        if (length(existing_paths) > 0L) {
+          fs::file_delete(path = existing_paths)
+        }
+      },
+      add = TRUE
+    )
+    write_synthetic_workbook(
+      workbook_path = workbook_path,
+      patient_ids = c("1", "2"),
+      admission_dates = c("2026-01-01", "31/02/2026")
+    )
+
+    testthat::expect_error(
+      object = transform_icu_workbook(
+        input_path = workbook_path,
+        database_path = database_path
+      ),
+      regexp = "invalid dd/mm/yyyy values in 'admission_date' at Excel row\\(s\\): 2, 3"
+    )
   }
 )
 
@@ -149,7 +316,7 @@ testthat::test_that(
     )
     write_synthetic_workbook(
       workbook_path = workbook_path,
-      physiotherapy_source_record_number = "not-linked"
+      physiotherapy_patient_ids = "not-linked"
     )
 
     testthat::expect_error(
