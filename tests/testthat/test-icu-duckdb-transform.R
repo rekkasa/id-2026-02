@@ -141,6 +141,30 @@ testthat::test_that(
 )
 
 testthat::test_that(
+  desc = "the hand-grip parser splits right and left strengths",
+  code = {
+    strengths <- parse_hand_grip_strength_cell(value = "27.5 (R) 24 (L)")
+    comma_strengths <- parse_hand_grip_strength_cell(
+      value = "27,5(R)24,25(L)"
+    )
+    blank_strengths <- parse_hand_grip_strength_cell(value = NA_character_)
+    invalid_strengths <- parse_hand_grip_strength_cell(value = "27 (L) 24 (R)")
+
+    testthat::expect_identical(strengths$right, 27.5)
+    testthat::expect_identical(strengths$left, 24)
+    testthat::expect_true(strengths$valid)
+    testthat::expect_identical(comma_strengths$right, 27.5)
+    testthat::expect_identical(comma_strengths$left, 24.25)
+    testthat::expect_true(comma_strengths$valid)
+    testthat::expect_identical(blank_strengths$right, NA_real_)
+    testthat::expect_identical(blank_strengths$left, NA_real_)
+    testthat::expect_true(blank_strengths$valid)
+    testthat::expect_false(invalid_strengths$valid)
+    testthat::expect_identical(invalid_strengths$raw_kind, "unsupported_text")
+  }
+)
+
+testthat::test_that(
   desc = "the transformer stores numeric sleep measurements",
   code = {
     workbook_path <- fs::file_temp(ext = ".xlsx")
@@ -300,6 +324,44 @@ testthat::test_that(
 )
 
 testthat::test_that(
+  desc = "the transformer rejects malformed hand-grip strengths",
+  code = {
+    workbook_path <- fs::file_temp(ext = ".xlsx")
+    database_path <- fs::file_temp(ext = ".duckdb")
+    on.exit(
+      expr = {
+        paths <- c(workbook_path, database_path)
+        existing_paths <- paths[fs::file_exists(path = paths)]
+        if (length(existing_paths) > 0L) {
+          fs::file_delete(path = existing_paths)
+        }
+      },
+      add = TRUE
+    )
+    write_synthetic_workbook(workbook_path = workbook_path)
+    overwrite_excel_cell(
+      workbook_path = workbook_path,
+      sheet_name = "ΜΕ ΦΥΣΙΚΟΘΕΡΑΠΕΙΑ",
+      value = "27 (R) invalid (L)",
+      column_number = 9L,
+      row_number = 3L
+    )
+
+    testthat::expect_error(
+      object = transform_icu_workbook(
+        input_path = workbook_path,
+        database_path = database_path
+      ),
+      regexp = stringr::str_c(
+        "Worksheet 'ΜΕ ΦΥΣΙΚΟΘΕΡΑΠΕΙΑ' contains invalid hand grip strength ",
+        "values in 'handgrip_strength' at Excel row\\(s\\): 3 ",
+        "\\(types: unsupported_text=1\\)"
+      )
+    )
+  }
+)
+
+testthat::test_that(
   desc = "the transformer creates a paired name-free DuckDB database",
   code = {
     workbook_path <- fs::file_temp(ext = ".xlsx")
@@ -397,14 +459,30 @@ testthat::test_that(
       conn = connection,
       statement = stringr::str_c(
         'SELECT "patient_id", "rass_score", "vas_score", "cam_icu_result",',
-        '"borg_score", "borg_rpe_score", "handgrip_strength",',
-        '"mrc_score", "icu_mobility_score"',
+        '"borg_score", "borg_rpe_score", "hand_grip_strength_right",',
+        '"hand_grip_strength_left", "mrc_score", "icu_mobility_score"',
+        'FROM "patient_clinical_status"',
+        sep = " "
+      )
+    )
+    hand_grip_strength_types <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT typeof("hand_grip_strength_right")',
+        'AS "hand_grip_strength_right_type",',
+        'typeof("hand_grip_strength_left")',
+        'AS "hand_grip_strength_left_type"',
         'FROM "patient_clinical_status"',
         sep = " "
       )
     )
     testthat::expect_true("patient_id" %in% clinical_status_columns)
     testthat::expect_false("session_id" %in% clinical_status_columns)
+    testthat::expect_false("handgrip_strength" %in% clinical_status_columns)
+    testthat::expect_true(all(c(
+      "hand_grip_strength_right",
+      "hand_grip_strength_left"
+    ) %in% clinical_status_columns))
     testthat::expect_identical(patient_clinical_status$patient_id, "1")
     testthat::expect_identical(patient_clinical_status$rass_score, "value_4")
     testthat::expect_identical(patient_clinical_status$vas_score, "value_5")
@@ -418,8 +496,16 @@ testthat::test_that(
       "value_8"
     )
     testthat::expect_identical(
-      patient_clinical_status$handgrip_strength,
-      "value_9"
+      patient_clinical_status$hand_grip_strength_right,
+      27.5
+    )
+    testthat::expect_identical(
+      patient_clinical_status$hand_grip_strength_left,
+      24
+    )
+    testthat::expect_identical(
+      as.character(hand_grip_strength_types[1L, ]),
+      c("DOUBLE", "DOUBLE")
     )
     testthat::expect_identical(patient_clinical_status$mrc_score, "value_10")
     testthat::expect_identical(

@@ -155,6 +155,7 @@ write_synthetic_workbook <- function(
         patient_id = physiotherapy_patient_ids[[index]]
       )
       physiotherapy_row[[3L]] <- connection_dates[[index]]
+      physiotherapy_row[[9L]] <- "27.5 (R) 24 (L)"
       physiotherapy_row[[30L]] <- "0,40"
       write_excel_row(
         workbook = workbook,
@@ -170,6 +171,7 @@ write_synthetic_workbook <- function(
       patient_id = physiotherapy_patient_ids[[1L]]
     )
     duplicate_row[[3L]] <- connection_dates[[1L]]
+    duplicate_row[[9L]] <- "27.5 (R) 24 (L)"
     duplicate_row[[30L]] <- "0,40"
     write_excel_row(
       workbook = workbook,

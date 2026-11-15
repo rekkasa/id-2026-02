@@ -394,6 +394,11 @@ sleep_numeric_column_names <- c(
   "arousal_index"
 )
 
+patient_clinical_status_numeric_column_names <- c(
+  "hand_grip_strength_right",
+  "hand_grip_strength_left"
+)
+
 database_column_names <- list(
   patients = c(
     patient_id = "patient_id",
@@ -441,7 +446,8 @@ database_column_names <- list(
     cam_icu_result = "cam_icu_result",
     borg_score = "borg_score",
     borg_rpe_score = "borg_rpe_score",
-    handgrip_strength = "handgrip_strength",
+    hand_grip_strength_right = "hand_grip_strength_right",
+    hand_grip_strength_left = "hand_grip_strength_left",
     mrc_score = "mrc_score",
     icu_mobility_score = "icu_mobility_score"
   ),
@@ -1273,6 +1279,107 @@ parse_arousal_index_column <- function(
   )
 }
 
+parse_hand_grip_strength_cell <- function(value) {
+  if (is_missing_source_value(value)) {
+    return(list(
+      right = NA_real_,
+      left = NA_real_,
+      raw_kind = "blank",
+      valid = TRUE
+    ))
+  }
+
+  if (!is.character(value)) {
+    return(list(
+      right = NA_real_,
+      left = NA_real_,
+      raw_kind = "unsupported_type",
+      valid = FALSE
+    ))
+  }
+
+  components <- stringr::str_match(
+    string = normalize_text(values = value),
+    pattern = stringr::str_c(
+      "^([0-9]+(?:[.,][0-9]+)?)\\s*\\([Rr]\\)\\s*",
+      "([0-9]+(?:[.,][0-9]+)?)\\s*\\([Ll]\\)$"
+    )
+  )
+  if (is.na(components[, 1L])) {
+    return(list(
+      right = NA_real_,
+      left = NA_real_,
+      raw_kind = "unsupported_text",
+      valid = FALSE
+    ))
+  }
+
+  list(
+    right = as.numeric(stringr::str_replace(
+      string = components[, 2L],
+      pattern = ",",
+      replacement = "."
+    )),
+    left = as.numeric(stringr::str_replace(
+      string = components[, 3L],
+      pattern = ",",
+      replacement = "."
+    )),
+    raw_kind = "text_hand_grip_strength",
+    valid = TRUE
+  )
+}
+
+parse_hand_grip_strength_columns <- function(source_rows, source_sheet) {
+  source_column <- "handgrip_strength"
+  if (!source_column %in% names(source_rows)) {
+    return(source_rows)
+  }
+
+  parsed_cells <- purrr::map(
+    .x = source_rows[[source_column]],
+    .f = parse_hand_grip_strength_cell
+  )
+  valid_values <- purrr::map_lgl(
+    .x = parsed_cells,
+    .f = function(parsed_cell) parsed_cell$valid
+  )
+
+  if (any(!valid_values)) {
+    invalid_rows <- source_rows$source_row_number[!valid_values]
+    invalid_kinds <- purrr::map_chr(
+      .x = parsed_cells[!valid_values],
+      .f = function(parsed_cell) parsed_cell$raw_kind
+    ) |>
+      tibble::tibble(raw_kind = _) |>
+      dplyr::count(.data$raw_kind, name = "row_count") |>
+      dplyr::transmute(
+        summary = stringr::str_c(.data$raw_kind, "=", .data$row_count)
+      ) |>
+      dplyr::pull(var = "summary") |>
+      stringr::str_c(collapse = ", ")
+    rlang::abort(
+      message = glue::glue(
+        "Worksheet '{source_sheet}' contains invalid hand grip strength ",
+        "values in '{source_column}' at Excel row(s): ",
+        "{stringr::str_c(invalid_rows, collapse = ', ')} ",
+        "(types: {invalid_kinds})."
+      )
+    )
+  }
+
+  source_rows$hand_grip_strength_right <- purrr::map_dbl(
+    .x = parsed_cells,
+    .f = function(parsed_cell) parsed_cell$right
+  )
+  source_rows$hand_grip_strength_left <- purrr::map_dbl(
+    .x = parsed_cells,
+    .f = function(parsed_cell) parsed_cell$left
+  )
+  source_rows[[source_column]] <- NULL
+  source_rows
+}
+
 parse_date_columns <- function(source_rows, source_sheet) {
   date_columns <- names(source_rows)[stringr::str_detect(
     string = names(source_rows),
@@ -1419,7 +1526,11 @@ read_source_rows <- function(input_path, sheet_layout) {
     source_rows = source_rows,
     source_sheet = sheet_layout$sheet_name
   )
-  parse_arousal_index_columns(
+  source_rows <- parse_arousal_index_columns(
+    source_rows = source_rows,
+    source_sheet = sheet_layout$sheet_name
+  )
+  parse_hand_grip_strength_columns(
     source_rows = source_rows,
     source_sheet = sheet_layout$sheet_name
   )
@@ -1703,7 +1814,8 @@ build_session_tables <- function(
       cam_icu_result = .data$cam_icu_result,
       borg_score = .data$borg_score,
       borg_rpe_score = .data$borg_rpe_score,
-      handgrip_strength = .data$handgrip_strength,
+      hand_grip_strength_right = .data$hand_grip_strength_right,
+      hand_grip_strength_left = .data$hand_grip_strength_left,
       mrc_score = .data$mrc_score,
       icu_mobility_score = .data$icu_mobility_score
     )
@@ -2077,9 +2189,13 @@ assert_raw_value_types <- function(tables) {
         allowed_numeric <- purrr::imap_lgl(
           .x = data,
           .f = function(values, column_name) {
-            table_name == "sleep_assessments" &&
-              column_name %in% sleep_numeric_column_names &&
-              is.numeric(values)
+            ((
+              table_name == "sleep_assessments" &&
+                column_name %in% sleep_numeric_column_names
+            ) || (
+              table_name == "patient_clinical_status" &&
+                column_name %in% patient_clinical_status_numeric_column_names
+            )) && is.numeric(values)
           }
         )
         is_character_column <- purrr::map_lgl(
@@ -2097,7 +2213,7 @@ assert_raw_value_types <- function(tables) {
     rlang::abort(
       message = stringr::str_c(
         "Retained values must be character, except source_row_number and ",
-        "date columns, plus numeric sleep columns."
+        "date columns, plus configured numeric columns."
       )
     )
   }
@@ -2183,7 +2299,8 @@ create_duckdb_schema <- function(connection) {
       "cam_icu_result" VARCHAR,
       "borg_score" VARCHAR,
       "borg_rpe_score" VARCHAR,
-      "handgrip_strength" VARCHAR,
+      "hand_grip_strength_right" DOUBLE,
+      "hand_grip_strength_left" DOUBLE,
       "mrc_score" VARCHAR,
       "icu_mobility_score" VARCHAR,
       FOREIGN KEY ("patient_id") REFERENCES "patients" ("patient_id")
