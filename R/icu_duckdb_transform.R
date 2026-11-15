@@ -399,6 +399,11 @@ patient_clinical_status_numeric_column_names <- c(
   "hand_grip_strength_left"
 )
 
+physiological_assessment_numeric_column_names <- c(
+  "blood_pressure_diastolic",
+  "blood_pressure_systolic"
+)
+
 database_column_names <- list(
   patients = c(
     patient_id = "patient_id",
@@ -463,7 +468,8 @@ database_column_names <- list(
     respiratory_rate = "respiratory_rate",
     t_piece = "t_piece",
     oxygen_saturation = "oxygen_saturation",
-    blood_pressure = "blood_pressure",
+    blood_pressure_diastolic = "blood_pressure_diastolic",
+    blood_pressure_systolic = "blood_pressure_systolic",
     heart_rate = "heart_rate",
     norepinephrine_rate = "norepinephrine_rate",
     arterial_ph = "arterial_ph",
@@ -1380,6 +1386,117 @@ parse_hand_grip_strength_columns <- function(source_rows, source_sheet) {
   source_rows
 }
 
+parse_blood_pressure_cell <- function(value) {
+  if (is_missing_source_value(value)) {
+    return(list(
+      diastolic = NA_real_,
+      systolic = NA_real_,
+      raw_kind = "blank",
+      valid = TRUE
+    ))
+  }
+
+  if (!is.character(value)) {
+    return(list(
+      diastolic = NA_real_,
+      systolic = NA_real_,
+      raw_kind = "unsupported_type",
+      valid = FALSE
+    ))
+  }
+
+  components <- stringr::str_match(
+    string = normalize_text(values = value),
+    pattern = "^([0-9]+(?:[.,][0-9]+)?)\\s*/\\s*([0-9]+(?:[.,][0-9]+)?)$"
+  )
+  if (is.na(components[, 1L])) {
+    return(list(
+      diastolic = NA_real_,
+      systolic = NA_real_,
+      raw_kind = "unsupported_text",
+      valid = FALSE
+    ))
+  }
+
+  list(
+    diastolic = as.numeric(stringr::str_replace(
+      string = components[, 2L],
+      pattern = ",",
+      replacement = "."
+    )),
+    systolic = as.numeric(stringr::str_replace(
+      string = components[, 3L],
+      pattern = ",",
+      replacement = "."
+    )),
+    raw_kind = "text_blood_pressure",
+    valid = TRUE
+  )
+}
+
+parse_blood_pressure_columns <- function(source_rows, source_sheet) {
+  blood_pressure_columns <- names(source_rows)[stringr::str_detect(
+    string = names(source_rows),
+    pattern = "_blood_pressure$"
+  )]
+
+  for (column_name in blood_pressure_columns) {
+    parsed_cells <- purrr::map(
+      .x = source_rows[[column_name]],
+      .f = parse_blood_pressure_cell
+    )
+    valid_values <- purrr::map_lgl(
+      .x = parsed_cells,
+      .f = function(parsed_cell) parsed_cell$valid
+    )
+
+    if (any(!valid_values)) {
+      invalid_rows <- source_rows$source_row_number[!valid_values]
+      invalid_kinds <- purrr::map_chr(
+        .x = parsed_cells[!valid_values],
+        .f = function(parsed_cell) parsed_cell$raw_kind
+      ) |>
+        tibble::tibble(raw_kind = _) |>
+        dplyr::count(.data$raw_kind, name = "row_count") |>
+        dplyr::transmute(
+          summary = stringr::str_c(.data$raw_kind, "=", .data$row_count)
+        ) |>
+        dplyr::pull(var = "summary") |>
+        stringr::str_c(collapse = ", ")
+      rlang::abort(
+        message = glue::glue(
+          "Worksheet '{source_sheet}' contains invalid blood pressure values ",
+          "in '{column_name}' at Excel row(s): ",
+          "{stringr::str_c(invalid_rows, collapse = ', ')} ",
+          "(types: {invalid_kinds})."
+        )
+      )
+    }
+
+    column_prefix <- stringr::str_remove(
+      string = column_name,
+      pattern = "_blood_pressure$"
+    )
+    source_rows[[stringr::str_c(
+      column_prefix,
+      "_blood_pressure_diastolic"
+    )]] <- purrr::map_dbl(
+      .x = parsed_cells,
+      .f = function(parsed_cell) parsed_cell$diastolic
+    )
+    source_rows[[stringr::str_c(
+      column_prefix,
+      "_blood_pressure_systolic"
+    )]] <- purrr::map_dbl(
+      .x = parsed_cells,
+      .f = function(parsed_cell) parsed_cell$systolic
+    )
+    source_rows[[column_name]] <- NULL
+  }
+
+  source_rows
+}
+
 parse_date_columns <- function(source_rows, source_sheet) {
   date_columns <- names(source_rows)[stringr::str_detect(
     string = names(source_rows),
@@ -1530,7 +1647,11 @@ read_source_rows <- function(input_path, sheet_layout) {
     source_rows = source_rows,
     source_sheet = sheet_layout$sheet_name
   )
-  parse_hand_grip_strength_columns(
+  source_rows <- parse_hand_grip_strength_columns(
+    source_rows = source_rows,
+    source_sheet = sheet_layout$sheet_name
+  )
+  parse_blood_pressure_columns(
     source_rows = source_rows,
     source_sheet = sheet_layout$sheet_name
   )
@@ -1863,7 +1984,8 @@ build_physiological_assessments <- function(
     respiratory_rate = "pre_respiratory_rate",
     t_piece = "pre_t_piece",
     oxygen_saturation = "pre_oxygen_saturation",
-    blood_pressure = "pre_blood_pressure",
+    blood_pressure_diastolic = "pre_blood_pressure_diastolic",
+    blood_pressure_systolic = "pre_blood_pressure_systolic",
     heart_rate = "pre_heart_rate",
     norepinephrine_rate = "pre_norepinephrine_rate",
     arterial_ph = "pre_arterial_ph",
@@ -1884,7 +2006,8 @@ build_physiological_assessments <- function(
     respiratory_rate = "post_respiratory_rate",
     t_piece = "post_t_piece",
     oxygen_saturation = "post_oxygen_saturation",
-    blood_pressure = "post_blood_pressure",
+    blood_pressure_diastolic = "post_blood_pressure_diastolic",
+    blood_pressure_systolic = "post_blood_pressure_systolic",
     heart_rate = "post_heart_rate",
     norepinephrine_rate = "post_norepinephrine_rate",
     arterial_ph = "post_arterial_ph",
@@ -1905,7 +2028,8 @@ build_physiological_assessments <- function(
     respiratory_rate = "start_respiratory_rate",
     t_piece = "start_t_piece",
     oxygen_saturation = "start_oxygen_saturation",
-    blood_pressure = "start_blood_pressure",
+    blood_pressure_diastolic = "start_blood_pressure_diastolic",
+    blood_pressure_systolic = "start_blood_pressure_systolic",
     heart_rate = "start_heart_rate",
     norepinephrine_rate = "start_norepinephrine_rate",
     arterial_ph = "start_arterial_ph",
@@ -1926,7 +2050,8 @@ build_physiological_assessments <- function(
     respiratory_rate = "end_respiratory_rate",
     t_piece = "end_t_piece",
     oxygen_saturation = "end_oxygen_saturation",
-    blood_pressure = "end_blood_pressure",
+    blood_pressure_diastolic = "end_blood_pressure_diastolic",
+    blood_pressure_systolic = "end_blood_pressure_systolic",
     heart_rate = "end_heart_rate",
     norepinephrine_rate = "end_norepinephrine_rate",
     arterial_ph = "end_arterial_ph",
@@ -2195,6 +2320,9 @@ assert_raw_value_types <- function(tables) {
             ) || (
               table_name == "patient_clinical_status" &&
                 column_name %in% patient_clinical_status_numeric_column_names
+            ) || (
+              table_name == "physiological_assessments" &&
+                column_name %in% physiological_assessment_numeric_column_names
             )) && is.numeric(values)
           }
         )
@@ -2324,7 +2452,8 @@ create_duckdb_schema <- function(connection) {
       "respiratory_rate" VARCHAR,
       "t_piece" VARCHAR,
       "oxygen_saturation" VARCHAR,
-      "blood_pressure" VARCHAR,
+      "blood_pressure_diastolic" DOUBLE,
+      "blood_pressure_systolic" DOUBLE,
       "heart_rate" VARCHAR,
       "norepinephrine_rate" VARCHAR,
       "arterial_ph" VARCHAR,

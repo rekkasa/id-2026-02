@@ -165,6 +165,33 @@ testthat::test_that(
 )
 
 testthat::test_that(
+  desc = "the blood pressure parser splits diastolic and systolic values",
+  code = {
+    blood_pressure <- parse_blood_pressure_cell(value = "70/120")
+    comma_blood_pressure <- parse_blood_pressure_cell(
+      value = "70,5 / 120,5"
+    )
+    blank_blood_pressure <- parse_blood_pressure_cell(value = NA_character_)
+    invalid_blood_pressure <- parse_blood_pressure_cell(value = "70-120")
+
+    testthat::expect_identical(blood_pressure$diastolic, 70)
+    testthat::expect_identical(blood_pressure$systolic, 120)
+    testthat::expect_true(blood_pressure$valid)
+    testthat::expect_identical(comma_blood_pressure$diastolic, 70.5)
+    testthat::expect_identical(comma_blood_pressure$systolic, 120.5)
+    testthat::expect_true(comma_blood_pressure$valid)
+    testthat::expect_identical(blank_blood_pressure$diastolic, NA_real_)
+    testthat::expect_identical(blank_blood_pressure$systolic, NA_real_)
+    testthat::expect_true(blank_blood_pressure$valid)
+    testthat::expect_false(invalid_blood_pressure$valid)
+    testthat::expect_identical(
+      invalid_blood_pressure$raw_kind,
+      "unsupported_text"
+    )
+  }
+)
+
+testthat::test_that(
   desc = "the transformer stores numeric sleep measurements",
   code = {
     workbook_path <- fs::file_temp(ext = ".xlsx")
@@ -362,6 +389,44 @@ testthat::test_that(
 )
 
 testthat::test_that(
+  desc = "the transformer rejects malformed blood pressure values",
+  code = {
+    workbook_path <- fs::file_temp(ext = ".xlsx")
+    database_path <- fs::file_temp(ext = ".duckdb")
+    on.exit(
+      expr = {
+        paths <- c(workbook_path, database_path)
+        existing_paths <- paths[fs::file_exists(path = paths)]
+        if (length(existing_paths) > 0L) {
+          fs::file_delete(path = existing_paths)
+        }
+      },
+      add = TRUE
+    )
+    write_synthetic_workbook(workbook_path = workbook_path)
+    overwrite_excel_cell(
+      workbook_path = workbook_path,
+      sheet_name = "ΜΕ ΦΥΣΙΚΟΘΕΡΑΠΕΙΑ",
+      value = "70-120",
+      column_number = 20L,
+      row_number = 3L
+    )
+
+    testthat::expect_error(
+      object = transform_icu_workbook(
+        input_path = workbook_path,
+        database_path = database_path
+      ),
+      regexp = stringr::str_c(
+        "Worksheet 'ΜΕ ΦΥΣΙΚΟΘΕΡΑΠΕΙΑ' contains invalid blood pressure ",
+        "values in 'pre_blood_pressure' at Excel row\\(s\\): 3 ",
+        "\\(types: unsupported_text=1\\)"
+      )
+    )
+  }
+)
+
+testthat::test_that(
   desc = "the transformer creates a paired name-free DuckDB database",
   code = {
     workbook_path <- fs::file_temp(ext = ".xlsx")
@@ -443,6 +508,59 @@ testthat::test_that(
       )
     )
     testthat::expect_identical(fraction_value[[1L, 1L]], "0,40")
+
+    physiological_assessment_columns <- DBI::dbListFields(
+      conn = connection,
+      name = "physiological_assessments"
+    )
+    blood_pressure_values <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT "assessment_phase", "blood_pressure_diastolic",',
+        '"blood_pressure_systolic" FROM "physiological_assessments"',
+        'ORDER BY "assessment_phase"',
+        sep = " "
+      )
+    )
+    blood_pressure_types <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT typeof("blood_pressure_diastolic")',
+        'AS "blood_pressure_diastolic_type",',
+        'typeof("blood_pressure_systolic")',
+        'AS "blood_pressure_systolic_type"',
+        'FROM "physiological_assessments" LIMIT 1',
+        sep = " "
+      )
+    )
+    testthat::expect_false(
+      "blood_pressure" %in% physiological_assessment_columns
+    )
+    testthat::expect_true(all(c(
+      "blood_pressure_diastolic",
+      "blood_pressure_systolic"
+    ) %in% physiological_assessment_columns))
+    testthat::expect_identical(
+      blood_pressure_values$assessment_phase,
+      c(
+        "afterPhysiotherapy",
+        "beforePhysiotherapy",
+        "recordingEnd",
+        "recordingStart"
+      )
+    )
+    testthat::expect_identical(
+      blood_pressure_values$blood_pressure_diastolic,
+      c(72, 70, 70, 68)
+    )
+    testthat::expect_identical(
+      blood_pressure_values$blood_pressure_systolic,
+      c(118, 120, 115, 116)
+    )
+    testthat::expect_identical(
+      as.character(blood_pressure_types[1L, ]),
+      c("DOUBLE", "DOUBLE")
+    )
 
     patient_values <- DBI::dbGetQuery(
       conn = connection,
