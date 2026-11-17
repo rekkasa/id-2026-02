@@ -1,0 +1,7 @@
+/.quarto/
+**/*.quarto_ipynb
+/data.duckdb
+/report.docx
+/report.pdf
+/report.tex
+/report_files/

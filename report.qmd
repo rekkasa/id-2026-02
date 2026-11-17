@@ -1,0 +1,370 @@
+---
+title: "Περιγραφική στατιστική ασθενών"
+lang: el
+format:
+  docx:
+    toc: false
+  pdf:
+    pdf-engine: xelatex
+    toc: false
+execute:
+  echo: true
+  warning: false
+  message: false
+knitr:
+  opts_chunk:
+    dev: pdf
+---
+
+# Περιγραφικά χαρακτηριστικά ασθενών
+
+Ο Πίνακας 1 παρουσιάζει τα περιγραφικά χαρακτηριστικά όλων των ασθενών. Κάθε
+ασθενής περιλαμβάνεται μία φορά, καθώς οι ίδιοι ασθενείς αξιολογήθηκαν τόσο με
+όσο και χωρίς φυσικοθεραπεία.
+
+```{r}
+db_path <- fs::path("data.duckdb")
+
+if (!fs::file_exists(path = db_path)) {
+  rlang::abort(
+    message = stringr::str_c(
+      "Δεν βρέθηκε το αρχείο data.duckdb στον",
+      "ριζικό κατάλογο του έργου.",
+      sep = " "
+    )
+  )
+}
+
+connection <- DBI::dbConnect(
+  drv = duckdb::duckdb(),
+  dbdir = db_path,
+  read_only = TRUE
+)
+
+query_result <- tryCatch(
+  expr = list(
+    patient_data = DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        "SELECT",
+        "p.patient_id,",
+        "ia.age_years,",
+        "ia.height_cm,",
+        "ia.weight_kg,",
+        "ia.apache_ii_score,",
+        "ia.sex,",
+        "ia.admission_reason,",
+        "ia.mechanical_ventilation_indication,",
+        "ia.mechanical_ventilation_days,",
+        "ia.icu_stay_days,",
+        "ia.icu_outcome,",
+        "ia.hospital_outcome",
+        "FROM patients AS p",
+        "INNER JOIN icu_admissions AS ia",
+        "ON p.patient_id = ia.patient_id",
+        "ORDER BY p.patient_id",
+        sep = " "
+      )
+    ),
+    comorbidities = DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        "SELECT patient_id, comorbidity_type, source_value",
+        "FROM patient_comorbidities",
+        "ORDER BY patient_id, comorbidity_type",
+        sep = " "
+      )
+    )
+  ),
+  finally = DBI::dbDisconnect(
+    conn = connection,
+    shutdown = TRUE
+  )
+)
+
+patient_data <- query_result$patient_data
+comorbidities <- query_result$comorbidities
+```
+
+## Πίνακας 1
+
+```{r}
+parse_numeric <- function(values) {
+  normalized_values <- values |>
+    stringr::str_squish() |>
+    stringr::str_replace_all(
+      pattern = ",",
+      replacement = "."
+    ) |>
+    dplyr::na_if(y = "")
+
+  suppressWarnings(
+    as.numeric(x = normalized_values)
+  )
+}
+
+format_number <- function(value, digits = 1L) {
+  formatC(
+    x = value,
+    format = "f",
+    digits = digits,
+    decimal.mark = ","
+  )
+}
+
+format_n_percent <- function(count, denominator, digits = 1L) {
+  percentage <- format_number(
+    value = 100 * count / denominator,
+    digits = digits
+  )
+
+  stringr::str_c(
+    count,
+    " (",
+    percentage,
+    "%)"
+  )
+}
+
+translate_categories <- function(values) {
+  trimmed_values <- values |>
+    stringr::str_squish()
+  normalized_values <- trimmed_values |>
+    stringr::str_to_lower()
+
+  dplyr::case_when(
+    normalized_values %in% c(
+      "male",
+      "m",
+      "άνδρας",
+      "ανδρας",
+      "άρρεν",
+      "αρρεν"
+    ) ~ "Άνδρας",
+    normalized_values %in% c(
+      "female",
+      "f",
+      "γυναίκα",
+      "γυναικα",
+      "θήλυ",
+      "θηλυ"
+    ) ~ "Γυναίκα",
+    normalized_values %in% c(
+      "alive",
+      "survived",
+      "survivor",
+      "επιβίωση",
+      "επιβιωση",
+      "επιβίωσε",
+      "επιβιωσε"
+    ) ~ "Επιβίωση",
+    normalized_values %in% c(
+      "dead",
+      "deceased",
+      "death",
+      "θάνατος",
+      "θανατος",
+      "απεβίωσε",
+      "απεβιωσε"
+    ) ~ "Θάνατος",
+    TRUE ~ trimmed_values
+  )
+}
+
+translate_binary_categories <- function(values) {
+  trimmed_values <- values |>
+    stringr::str_squish()
+  normalized_values <- trimmed_values |>
+    stringr::str_to_lower()
+
+  dplyr::case_when(
+    normalized_values %in% c(
+      "yes",
+      "y",
+      "true",
+      "1",
+      "ναι"
+    ) ~ "Ναι",
+    normalized_values %in% c(
+      "no",
+      "n",
+      "false",
+      "0",
+      "όχι",
+      "οχι"
+    ) ~ "Όχι",
+    TRUE ~ trimmed_values
+  )
+}
+
+summarise_continuous <- function(label, values) {
+  numeric_values <- parse_numeric(values = values)
+  available_values <- numeric_values[!is.na(numeric_values)]
+  missing_count <- sum(is.na(numeric_values))
+
+  if (length(available_values) == 0L) {
+    summary_text <- "Μη διαθέσιμα"
+  } else {
+    quartiles <- stats::quantile(
+      x = available_values,
+      probs = c(0.25, 0.50, 0.75),
+      na.rm = TRUE,
+      names = FALSE
+    )
+    summary_text <- stringr::str_c(
+      format_number(value = quartiles[[2L]]),
+      " [",
+      format_number(value = quartiles[[1L]]),
+      ", ",
+      format_number(value = quartiles[[3L]]),
+      "]"
+    )
+  }
+
+  tibble::tibble(
+    variable = label,
+    summary = stringr::str_c(
+      summary_text,
+      "; ελλείποντα: ",
+      missing_count
+    )
+  )
+}
+
+summarise_categorical <- function(label, values) {
+  translated_values <- translate_categories(values = values)
+  translated_values <- dplyr::if_else(
+    condition = is.na(translated_values) | translated_values == "",
+    true = "Μη διαθέσιμο",
+    false = translated_values
+  )
+
+  counts <- tibble::tibble(category = translated_values) |>
+    dplyr::count(
+      category,
+      name = "count",
+      sort = FALSE
+    ) |>
+    dplyr::mutate(
+      display = purrr::map_chr(
+        .x = .data$count,
+        .f = function(count) {
+          format_n_percent(
+            count = count,
+            denominator = n_patients
+          )
+        }
+      )
+    )
+
+  tibble::tibble(
+    variable = label,
+    summary = counts$category |>
+      stringr::str_c(
+        ": ",
+        counts$display,
+        collapse = "; "
+      )
+  )
+}
+
+n_patients <- dplyr::n_distinct(patient_data$patient_id)
+
+continuous_rows <- dplyr::bind_rows(
+  summarise_continuous(
+    label = "Ηλικία (έτη)",
+    values = patient_data$age_years
+  ),
+  summarise_continuous(
+    label = "Ύψος (cm)",
+    values = patient_data$height_cm
+  ),
+  summarise_continuous(
+    label = "Βάρος (kg)",
+    values = patient_data$weight_kg
+  ),
+  summarise_continuous(
+    label = "Βαθμολογία APACHE II",
+    values = patient_data$apache_ii_score
+  ),
+  summarise_continuous(
+    label = "Ημέρες μηχανικού αερισμού",
+    values = patient_data$mechanical_ventilation_days
+  ),
+  summarise_continuous(
+    label = "Ημέρες παραμονής στη ΜΕΘ",
+    values = patient_data$icu_stay_days
+  )
+)
+
+categorical_rows <- dplyr::bind_rows(
+  summarise_categorical(
+    label = "Φύλο",
+    values = patient_data$sex
+  ),
+  summarise_categorical(
+    label = "Αιτία εισαγωγής στη ΜΕΘ",
+    values = patient_data$admission_reason
+  ),
+  summarise_categorical(
+    label = "Ένδειξη μηχανικού αερισμού",
+    values = patient_data$mechanical_ventilation_indication
+  ),
+  summarise_categorical(
+    label = "Έκβαση στη ΜΕΘ",
+    values = patient_data$icu_outcome
+  ),
+  summarise_categorical(
+    label = "Ενδονοσοκομειακή έκβαση",
+    values = patient_data$hospital_outcome
+  )
+)
+
+comorbidity_labels <- c(
+  copd = "Χρόνια αποφρακτική πνευμονοπάθεια (ΧΑΠ)",
+  restrictiveLungDisease = "Περιοριστική πνευμονοπάθεια",
+  neuromuscularDisease = "Νευρομυϊκή νόσος",
+  heartFailure = "Καρδιακή ανεπάρκεια",
+  diabetes = "Σακχαρώδης διαβήτης",
+  previousStroke = "Προηγούμενο αγγειακό εγκεφαλικό επεισόδιο",
+  vascularDisease = "Γνωστή αγγειακή νόσος",
+  chronicKidneyDisease = "Χρόνια νεφρική νόσος",
+  otherUnderlyingCondition = "Άλλη υποκείμενη νόσος"
+)
+
+comorbidity_rows <- purrr::map_dfr(
+  .x = names(comorbidity_labels),
+  .f = function(comorbidity_code) {
+    values <- comorbidities |>
+      dplyr::filter(
+        .data$comorbidity_type == .env$comorbidity_code
+      ) |>
+      dplyr::pull(var = "source_value") |>
+      translate_binary_categories()
+
+    summarise_categorical(
+      label = unname(comorbidity_labels[[comorbidity_code]]),
+      values = values
+    )
+  }
+)
+
+table_1 <- dplyr::bind_rows(
+  tibble::tibble(
+    variable = "Συνολικός αριθμός ασθενών",
+    summary = stringr::str_c(n_patients)
+  ),
+  continuous_rows,
+  categorical_rows,
+  comorbidity_rows
+)
+```
+
+```{r}
+knitr::kable(
+  x = table_1,
+  format = "pipe",
+  col.names = c("Χαρακτηριστικό", "Περιγραφικά στοιχεία"),
+  caption = "Πίνακας 1. Περιγραφικά χαρακτηριστικά όλων των ασθενών."
+)
+```
