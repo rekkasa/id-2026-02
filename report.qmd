@@ -385,6 +385,109 @@ knitr::kable(
 )
 ```
 
+## Sleep assessment comparisons
+
+```{r}
+sleep_test_labels <- c(
+  total_sleep_time = "Total sleep time (min)",
+  sleep_efficiency = "Sleep efficiency (%)",
+  arousal_index = "Arousal index (/h)",
+  rcsq_score = "RCSQ score",
+  wake_after_sleep_onset = "WASO (min)"
+)
+
+sleep_test_data <- sleep_assessments |>
+  dplyr::select(
+    "patient_id",
+    "assessment",
+    dplyr::all_of(names(sleep_test_labels))
+  ) |>
+  dplyr::mutate(
+    dplyr::across(
+      .cols = dplyr::all_of(names(sleep_test_labels)),
+      .fns = parse_numeric
+    )
+  ) |>
+  tidyr::pivot_wider(
+    id_cols = "patient_id",
+    names_from = "assessment",
+    values_from = dplyr::all_of(names(sleep_test_labels)),
+    names_glue = "{.value}_{assessment}"
+  )
+
+sleep_test_results <- purrr::map_dfr(
+  .x = names(sleep_test_labels),
+  .f = function(measurement) {
+    with_column <- stringr::str_c(
+      measurement,
+      "_with_physiotherapy"
+    )
+    without_column <- stringr::str_c(
+      measurement,
+      "_without_physiotherapy"
+    )
+    complete_pairs <- sleep_test_data |>
+      dplyr::filter(
+        !is.na(.data[[with_column]]),
+        !is.na(.data[[without_column]])
+      )
+
+    if (nrow(x = complete_pairs) == 0L) {
+      p_value <- NA_real_
+    } else {
+      test_result <- stats::wilcox.test(
+        x = complete_pairs[[with_column]],
+        y = complete_pairs[[without_column]],
+        paired = TRUE,
+        exact = FALSE
+      )
+      p_value <- test_result$p.value
+    }
+
+    tibble::tibble(
+      variable = unname(sleep_test_labels[[measurement]]),
+      complete_pairs = nrow(x = complete_pairs),
+      p_value = p_value
+    )
+  }
+) |>
+  dplyr::mutate(
+    holm_adjusted_p_value = stats::p.adjust(
+      p = .data$p_value,
+      method = "holm"
+    )
+  )
+
+sleep_test_results_display <- sleep_test_results |>
+  dplyr::mutate(
+    p_value = format_number(
+      value = .data$p_value,
+      digits = 3L
+    ),
+    holm_adjusted_p_value = format_number(
+      value = .data$holm_adjusted_p_value,
+      digits = 3L
+    )
+  )
+```
+
+```{r}
+knitr::kable(
+  x = sleep_test_results_display,
+  format = "pipe",
+  col.names = c(
+    "Sleep measure",
+    "Complete pairs",
+    "Wilcoxon p-value",
+    "Holm-adjusted p-value"
+  ),
+  caption = paste(
+    "Paired Wilcoxon signed-rank tests comparing sleep assessments",
+    "with and without physiotherapy."
+  )
+)
+```
+
 ## Physiological assessments
 
 ```{r}
