@@ -64,6 +64,27 @@ query_result <- tryCatch(
         "ORDER BY patient_id",
         sep = " "
       )
+    ),
+    physiological_assessments = DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        "SELECT patient_id, phase, pressure_support,",
+        "positive_end_expiratory_pressure, tidal_volume,",
+        "total_minute_ventilation, fraction_inspired_oxygen,",
+        "respiratory_rate, t_piece, oxygen_saturation,",
+        "blood_pressure_diastolic, blood_pressure_systolic,",
+        "heart_rate, norepinephrine_rate, arterial_ph,",
+        "arterial_oxygen_pressure,",
+        "arterial_carbon_dioxide_pressure,",
+        "ventilator_sensitivity, expiratory_sensitivity, rising_time",
+        "FROM physiological_assessments",
+        "WHERE assessment = 'with_physiotherapy'",
+        "AND phase IN (
+          'before_physiotherapy', 'after_physiotherapy'
+        )",
+        "ORDER BY patient_id, phase",
+        sep = " "
+      )
     )
   ),
   finally = DBI::dbDisconnect(
@@ -74,6 +95,7 @@ query_result <- tryCatch(
 
 icu_admissions <- query_result$icu_admissions
 patient_clinical_status <- query_result$patient_clinical_status
+physiological_assessments <- query_result$physiological_assessments
 ```
 
 ## Table 1
@@ -339,4 +361,126 @@ knitr::kable(
   col.names = c("Patient status", "Descriptive statistics"),
   caption = "Table 2. Patient clinical status."
 )
+```
+
+## Physiological assessments with physiotherapy
+
+```{r}
+#| label: fig-physiological-boxplots
+#| fig-cap: "Physiological assessments before and after physiotherapy."
+#| fig-width: 14
+#| fig-height: 8
+#| dev: ragg_png
+
+plot_device <- ragg::agg_png
+
+measurement_labels <- tibble::tibble(
+  measurement = c(
+    "pressure_support",
+    "positive_end_expiratory_pressure",
+    "tidal_volume",
+    "total_minute_ventilation",
+    "fraction_inspired_oxygen",
+    "respiratory_rate",
+    "t_piece",
+    "oxygen_saturation",
+    "blood_pressure_diastolic",
+    "blood_pressure_systolic",
+    "heart_rate",
+    "norepinephrine_rate",
+    "arterial_ph",
+    "arterial_oxygen_pressure",
+    "arterial_carbon_dioxide_pressure",
+    "ventilator_sensitivity",
+    "expiratory_sensitivity",
+    "rising_time"
+  ),
+  label = c(
+    "Pressure support",
+    "PEEP",
+    "Tidal volume",
+    "Total minute ventilation",
+    "Fraction of inspired oxygen",
+    "Respiratory rate",
+    "T-piece",
+    "Oxygen saturation",
+    "Diastolic blood pressure",
+    "Systolic blood pressure",
+    "Heart rate",
+    "Norepinephrine rate",
+    "Arterial pH",
+    "Arterial oxygen pressure",
+    "Arterial carbon dioxide pressure",
+    "Ventilator sensitivity",
+    "Expiratory sensitivity",
+    "Rising time"
+  )
+)
+
+physiological_measurements <- physiological_assessments |>
+  tidyr::pivot_longer(
+    cols = -c("patient_id", "phase"),
+    names_to = "measurement",
+    values_to = "value",
+    values_transform = list(value = as.character)
+  ) |>
+  dplyr::left_join(
+    y = measurement_labels,
+    by = "measurement"
+  ) |>
+  dplyr::mutate(
+    value = parse_numeric(values = .data$value),
+    phase = dplyr::recode(
+      .data$phase,
+      before_physiotherapy = "Before physiotherapy",
+      after_physiotherapy = "After physiotherapy"
+    ),
+    measurement = factor(
+      x = .data$label,
+      levels = measurement_labels$label
+    )
+  ) |>
+  dplyr::filter(!is.na(.data$value))
+
+physiological_boxplot <- ggplot2::ggplot(
+  data = physiological_measurements,
+  mapping = ggplot2::aes(
+    x = .data$measurement,
+    y = .data$value,
+    fill = .data$phase
+  )
+) +
+  ggplot2::geom_boxplot(
+    position = ggplot2::position_dodge2(
+      width = 0.8,
+      preserve = "single"
+    ),
+    width = 0.7,
+    outlier.alpha = 0.35,
+    na.rm = TRUE
+  ) +
+  ggplot2::scale_fill_manual(
+    values = c(
+      "Before physiotherapy" = "#4472C4",
+      "After physiotherapy" = "#ED7D31"
+    ),
+    name = "Phase"
+  ) +
+  ggplot2::labs(
+    title = "Physiological assessments with physiotherapy",
+    subtitle = "Before versus after physiotherapy",
+    x = NULL,
+    y = "Value"
+  ) +
+  ggplot2::theme_minimal(base_size = 10) +
+  ggplot2::theme(
+    axis.text.x = ggplot2::element_text(
+      angle = 45,
+      hjust = 1,
+      vjust = 1
+    ),
+    legend.position = "top"
+  )
+
+physiological_boxplot
 ```
