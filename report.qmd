@@ -68,7 +68,7 @@ query_result <- tryCatch(
     physiological_assessments = DBI::dbGetQuery(
       conn = connection,
       statement = stringr::str_c(
-        "SELECT patient_id, phase, pressure_support,",
+        "SELECT patient_id, assessment, phase, pressure_support,",
         "positive_end_expiratory_pressure, tidal_volume,",
         "total_minute_ventilation, fraction_inspired_oxygen,",
         "respiratory_rate, t_piece, oxygen_saturation,",
@@ -78,9 +78,12 @@ query_result <- tryCatch(
         "arterial_carbon_dioxide_pressure,",
         "ventilator_sensitivity, expiratory_sensitivity, rising_time",
         "FROM physiological_assessments",
-        "WHERE assessment = 'with_physiotherapy'",
+        "WHERE assessment IN (
+          'with_physiotherapy', 'without_physiotherapy'
+        )",
         "AND phase IN (
-          'before_physiotherapy', 'after_physiotherapy'
+          'before_physiotherapy', 'after_physiotherapy',
+          'recording_start', 'recording_end'
         )",
         "ORDER BY patient_id, phase",
         sep = " "
@@ -419,7 +422,7 @@ measurement_labels <- tibble::tibble(
 
 physiological_measurements <- physiological_assessments |>
   tidyr::pivot_longer(
-    cols = -c("patient_id", "phase"),
+    cols = -c("patient_id", "assessment", "phase"),
     names_to = "measurement",
     values_to = "value",
     values_transform = list(value = as.character)
@@ -436,15 +439,29 @@ physiological_measurements <- physiological_assessments |>
         .data$value <= 1 ~ .data$value * 100,
       TRUE ~ .data$value
     ),
-    phase = factor(
-      x = dplyr::recode(
-        .data$phase,
-        before_physiotherapy = "Before physiotherapy",
-        after_physiotherapy = "After physiotherapy"
-      ),
+    timepoint = dplyr::case_when(
+      .data$assessment == "with_physiotherapy" &
+        .data$phase == "before_physiotherapy" ~ "With physio - before",
+      .data$assessment == "with_physiotherapy" &
+        .data$phase == "after_physiotherapy" ~ "With physio - after",
+      .data$assessment == "without_physiotherapy" &
+        .data$phase == "recording_start" ~ "Without physio - start",
+      .data$assessment == "without_physiotherapy" &
+        .data$phase == "recording_end" ~ "Without physio - end",
+      TRUE ~ NA_character_
+    ),
+    assessment = dplyr::recode(
+      .data$assessment,
+      with_physiotherapy = "With physiotherapy",
+      without_physiotherapy = "Without physiotherapy"
+    ),
+    timepoint = factor(
+      x = .data$timepoint,
       levels = c(
-        "Before physiotherapy",
-        "After physiotherapy"
+        "With physio - before",
+        "With physio - after",
+        "Without physio - start",
+        "Without physio - end"
       )
     ),
     measurement = factor(
@@ -452,7 +469,11 @@ physiological_measurements <- physiological_assessments |>
       levels = measurement_labels$label
     )
   ) |>
-  dplyr::filter(!is.na(.data$value), !is.na(.data$label))
+  dplyr::filter(
+    !is.na(.data$value),
+    !is.na(.data$label),
+    !is.na(.data$timepoint)
+  )
 
 make_physiological_boxplot <- function(data, title) {
   if (nrow(x = data) == 0L) {
@@ -475,9 +496,9 @@ make_physiological_boxplot <- function(data, title) {
   ggplot2::ggplot(
     data = data,
     mapping = ggplot2::aes(
-      x = .data$measurement,
+      x = .data$timepoint,
       y = .data$value,
-      fill = .data$phase
+      fill = .data$assessment
     )
   ) +
     ggplot2::geom_boxplot(
@@ -491,14 +512,14 @@ make_physiological_boxplot <- function(data, title) {
     ) +
     ggplot2::scale_fill_manual(
       values = c(
-        "Before physiotherapy" = "#4472C4",
-        "After physiotherapy" = "#ED7D31"
+        "With physiotherapy" = "#4472C4",
+        "Without physiotherapy" = "#70AD47"
       ),
-      name = "Phase"
+      name = "Assessment"
     ) +
     ggplot2::labs(
       title = title,
-      subtitle = "Before versus after physiotherapy",
+      subtitle = "With and without physiotherapy across study timepoints",
       x = NULL,
       y = NULL
     ) +
@@ -554,7 +575,7 @@ ventilator_control_plot <- make_physiological_boxplot(
 
 ```{r}
 #| label: fig-ventilator-settings
-#| fig-cap: "Ventilator settings before and after physiotherapy."
+#| fig-cap: "Ventilator settings with and without physiotherapy."
 #| fig-width: 11
 #| fig-height: 9
 #| dev: ragg_png
@@ -564,7 +585,7 @@ ventilator_settings_plot
 
 ```{r}
 #| label: fig-oxygenation-gas-exchange
-#| fig-cap: "Oxygenation and gas exchange before and after physiotherapy."
+#| fig-cap: "Oxygenation and gas exchange with and without physiotherapy."
 #| fig-width: 10
 #| fig-height: 8
 #| dev: ragg_png
@@ -574,7 +595,7 @@ oxygenation_plot
 
 ```{r}
 #| label: fig-hemodynamics
-#| fig-cap: "Hemodynamic measurements before and after physiotherapy."
+#| fig-cap: "Hemodynamic measurements with and without physiotherapy."
 #| fig-width: 10
 #| fig-height: 8
 #| dev: ragg_png
@@ -584,7 +605,7 @@ hemodynamics_plot
 
 ```{r}
 #| label: fig-ventilator-control-timing
-#| fig-cap: "Ventilator control and timing before and after physiotherapy."
+#| fig-cap: "Ventilator control and timing with and without physiotherapy."
 #| fig-width: 9
 #| fig-height: 6
 #| dev: ragg_png
