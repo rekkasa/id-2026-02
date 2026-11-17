@@ -1239,7 +1239,7 @@ parse_sleep_percentage_cell <- function(value) {
 
   components <- stringr::str_match(
     string = normalize_text(values = value),
-    pattern = "^([0-9]+(?:[.,][0-9]+)?)\\s*%$"
+    pattern = "^([0-9]+(?:[.,][0-9]+)?)(?:\\s*(%))?$"
   )
   if (is.na(components[, 1L])) {
     return(list(
@@ -1249,13 +1249,23 @@ parse_sleep_percentage_cell <- function(value) {
     ))
   }
 
+  percentage_value <- as.numeric(stringr::str_replace(
+    string = components[, 2L],
+    pattern = ",",
+    replacement = "."
+  ))
+  has_percent_suffix <- !is.na(components[, 3L])
+  if (!has_percent_suffix && percentage_value <= 1) {
+    percentage_value <- percentage_value * 100
+  }
+
   list(
-    value = as.numeric(stringr::str_replace(
-      string = components[, 2L],
-      pattern = ",",
-      replacement = "."
-    )),
-    raw_kind = "text_percentage",
+    value = percentage_value,
+    raw_kind = if (has_percent_suffix) {
+      "text_percentage"
+    } else {
+      "text_percentage_number"
+    },
     valid = TRUE
   )
 }

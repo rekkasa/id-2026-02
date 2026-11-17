@@ -141,17 +141,23 @@ testthat::test_that(
 )
 
 testthat::test_that(
-  desc = "the sleep percentage parser removes percentage suffixes",
+  desc = "the sleep percentage parser normalizes source percentages",
   code = {
     percentage <- parse_sleep_percentage_cell(value = "87.5%")
     comma_percentage <- parse_sleep_percentage_cell(value = "42,25 %")
+    fraction_percentage <- parse_sleep_percentage_cell(value = "0.875")
+    numeric_percentage <- parse_sleep_percentage_cell(value = "87.5")
     blank_value <- parse_sleep_percentage_cell(value = NA_character_)
-    invalid_value <- parse_sleep_percentage_cell(value = "87.5")
+    invalid_value <- parse_sleep_percentage_cell(value = "not available")
 
     testthat::expect_identical(percentage$value, 87.5)
     testthat::expect_true(percentage$valid)
     testthat::expect_identical(comma_percentage$value, 42.25)
     testthat::expect_true(comma_percentage$valid)
+    testthat::expect_identical(fraction_percentage$value, 87.5)
+    testthat::expect_true(fraction_percentage$valid)
+    testthat::expect_identical(numeric_percentage$value, 87.5)
+    testthat::expect_true(numeric_percentage$valid)
     testthat::expect_identical(blank_value$value, NA_real_)
     testthat::expect_true(blank_value$valid)
     testthat::expect_false(invalid_value$valid)
