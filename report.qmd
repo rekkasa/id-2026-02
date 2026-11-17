@@ -389,7 +389,6 @@ knitr::kable(
 
 ```{r}
 sleep_test_labels <- c(
-  total_sleep_time = "Total sleep time (min)",
   sleep_efficiency = "Sleep efficiency (%)",
   arousal_index = "Arousal index (/h)",
   rcsq_score = "RCSQ score",
@@ -438,8 +437,7 @@ sleep_test_results <- purrr::map_dfr(
       test_result <- stats::wilcox.test(
         x = complete_pairs[[with_column]],
         y = complete_pairs[[without_column]],
-        paired = TRUE,
-        exact = FALSE
+        paired = TRUE
       )
       p_value <- test_result$p.value
     }
