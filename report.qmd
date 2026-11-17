@@ -22,10 +22,6 @@ knitr:
 
 # Περιγραφικά χαρακτηριστικά ασθενών
 
-Ο Πίνακας 1 παρουσιάζει τα περιγραφικά χαρακτηριστικά όλων των ασθενών. Κάθε
-ασθενής περιλαμβάνεται μία φορά, καθώς οι ίδιοι ασθενείς αξιολογήθηκαν τόσο με
-όσο και χωρίς φυσικοθεραπεία.
-
 ```{r}
 db_path <- fs::path("data.duckdb")
 
@@ -45,39 +41,16 @@ connection <- DBI::dbConnect(
   read_only = TRUE
 )
 
-query_result <- tryCatch(
-  expr = list(
-    patient_data = DBI::dbGetQuery(
-      conn = connection,
-      statement = stringr::str_c(
-        "SELECT",
-        "p.patient_id,",
-        "ia.age_years,",
-        "ia.height_cm,",
-        "ia.weight_kg,",
-        "ia.apache_ii_score,",
-        "ia.sex,",
-        "ia.admission_reason,",
-        "ia.mechanical_ventilation_indication,",
-        "ia.mechanical_ventilation_days,",
-        "ia.icu_stay_days,",
-        "ia.icu_outcome,",
-        "ia.hospital_outcome",
-        "FROM patients AS p",
-        "INNER JOIN icu_admissions AS ia",
-        "ON p.patient_id = ia.patient_id",
-        "ORDER BY p.patient_id",
-        sep = " "
-      )
-    ),
-    comorbidities = DBI::dbGetQuery(
-      conn = connection,
-      statement = stringr::str_c(
-        "SELECT patient_id, comorbidity_type, source_value",
-        "FROM patient_comorbidities",
-        "ORDER BY patient_id, comorbidity_type",
-        sep = " "
-      )
+icu_admissions <- tryCatch(
+  expr = DBI::dbGetQuery(
+    conn = connection,
+    statement = stringr::str_c(
+      "SELECT age_years, sex, apache_ii_score,",
+      "mechanical_ventilation_days, icu_stay_days,",
+      "icu_outcome, hospital_outcome",
+      "FROM icu_admissions",
+      "ORDER BY patient_id",
+      sep = " "
     )
   ),
   finally = DBI::dbDisconnect(
@@ -85,9 +58,6 @@ query_result <- tryCatch(
     shutdown = TRUE
   )
 )
-
-patient_data <- query_result$patient_data
-comorbidities <- query_result$comorbidities
 ```
 
 ## Πίνακας 1
@@ -131,10 +101,8 @@ format_n_percent <- function(count, denominator, digits = 1L) {
 }
 
 translate_categories <- function(values) {
-  trimmed_values <- values |>
-    stringr::str_squish()
-  normalized_values <- trimmed_values |>
-    stringr::str_to_lower()
+  trimmed_values <- stringr::str_squish(string = values)
+  normalized_values <- stringr::str_to_lower(string = trimmed_values)
 
   dplyr::case_when(
     normalized_values %in% c(
@@ -175,38 +143,12 @@ translate_categories <- function(values) {
   )
 }
 
-translate_binary_categories <- function(values) {
-  trimmed_values <- values |>
-    stringr::str_squish()
-  normalized_values <- trimmed_values |>
-    stringr::str_to_lower()
-
-  dplyr::case_when(
-    normalized_values %in% c(
-      "yes",
-      "y",
-      "true",
-      "1",
-      "ναι"
-    ) ~ "Ναι",
-    normalized_values %in% c(
-      "no",
-      "n",
-      "false",
-      "0",
-      "όχι",
-      "οχι"
-    ) ~ "Όχι",
-    TRUE ~ trimmed_values
-  )
-}
-
 summarise_continuous <- function(label, values) {
   numeric_values <- parse_numeric(values = values)
   available_values <- numeric_values[!is.na(numeric_values)]
-  missing_count <- sum(is.na(numeric_values))
+  missing_count <- sum(x = is.na(numeric_values))
 
-  if (length(available_values) == 0L) {
+  if (length(x = available_values) == 0L) {
     summary_text <- "Μη διαθέσιμα"
   } else {
     quartiles <- stats::quantile(
@@ -235,7 +177,7 @@ summarise_continuous <- function(label, values) {
   )
 }
 
-summarise_categorical <- function(label, values) {
+summarise_categorical <- function(label, values, denominator) {
   translated_values <- translate_categories(values = values)
   translated_values <- dplyr::if_else(
     condition = is.na(translated_values) | translated_values == "",
@@ -255,7 +197,7 @@ summarise_categorical <- function(label, values) {
         .f = function(count) {
           format_n_percent(
             count = count,
-            denominator = n_patients
+            denominator = denominator
           )
         }
       )
@@ -263,104 +205,50 @@ summarise_categorical <- function(label, values) {
 
   tibble::tibble(
     variable = label,
-    summary = counts$category |>
-      stringr::str_c(
-        ": ",
-        counts$display,
-        collapse = "; "
-      )
+    summary = stringr::str_c(
+      counts$category,
+      ": ",
+      counts$display,
+      sep = "",
+      collapse = "<br>"
+    )
   )
 }
 
-n_patients <- dplyr::n_distinct(patient_data$patient_id)
+n_patients <- nrow(x = icu_admissions)
 
-continuous_rows <- dplyr::bind_rows(
+table_1 <- dplyr::bind_rows(
   summarise_continuous(
     label = "Ηλικία (έτη)",
-    values = patient_data$age_years
+    values = icu_admissions$age_years
   ),
-  summarise_continuous(
-    label = "Ύψος (cm)",
-    values = patient_data$height_cm
-  ),
-  summarise_continuous(
-    label = "Βάρος (kg)",
-    values = patient_data$weight_kg
+  summarise_categorical(
+    label = "Φύλο",
+    values = icu_admissions$sex,
+    denominator = n_patients
   ),
   summarise_continuous(
     label = "Βαθμολογία APACHE II",
-    values = patient_data$apache_ii_score
+    values = icu_admissions$apache_ii_score
   ),
   summarise_continuous(
     label = "Ημέρες μηχανικού αερισμού",
-    values = patient_data$mechanical_ventilation_days
+    values = icu_admissions$mechanical_ventilation_days
   ),
   summarise_continuous(
     label = "Ημέρες παραμονής στη ΜΕΘ",
-    values = patient_data$icu_stay_days
-  )
-)
-
-categorical_rows <- dplyr::bind_rows(
-  summarise_categorical(
-    label = "Φύλο",
-    values = patient_data$sex
-  ),
-  summarise_categorical(
-    label = "Αιτία εισαγωγής στη ΜΕΘ",
-    values = patient_data$admission_reason
-  ),
-  summarise_categorical(
-    label = "Ένδειξη μηχανικού αερισμού",
-    values = patient_data$mechanical_ventilation_indication
+    values = icu_admissions$icu_stay_days
   ),
   summarise_categorical(
     label = "Έκβαση στη ΜΕΘ",
-    values = patient_data$icu_outcome
+    values = icu_admissions$icu_outcome,
+    denominator = n_patients
   ),
   summarise_categorical(
     label = "Ενδονοσοκομειακή έκβαση",
-    values = patient_data$hospital_outcome
+    values = icu_admissions$hospital_outcome,
+    denominator = n_patients
   )
-)
-
-comorbidity_labels <- c(
-  copd = "Χρόνια αποφρακτική πνευμονοπάθεια (ΧΑΠ)",
-  restrictiveLungDisease = "Περιοριστική πνευμονοπάθεια",
-  neuromuscularDisease = "Νευρομυϊκή νόσος",
-  heartFailure = "Καρδιακή ανεπάρκεια",
-  diabetes = "Σακχαρώδης διαβήτης",
-  previousStroke = "Προηγούμενο αγγειακό εγκεφαλικό επεισόδιο",
-  vascularDisease = "Γνωστή αγγειακή νόσος",
-  chronicKidneyDisease = "Χρόνια νεφρική νόσος",
-  otherUnderlyingCondition = "Άλλη υποκείμενη νόσος"
-)
-
-comorbidity_rows <- purrr::map_dfr(
-  .x = names(comorbidity_labels),
-  .f = function(comorbidity_code) {
-    values <- comorbidities |>
-      dplyr::filter(
-        .data$comorbidity_type == .env$comorbidity_code
-      ) |>
-      dplyr::pull(var = "source_value") |>
-      translate_binary_categories()
-
-    summarise_categorical(
-      label = unname(comorbidity_labels[[comorbidity_code]]),
-      values = values
-    )
-  }
-)
-
-table_1 <- dplyr::bind_rows(
-  tibble::tibble(
-    variable = "Συνολικός αριθμός ασθενών",
-    summary = stringr::str_c(n_patients)
-  ),
-  continuous_rows,
-  categorical_rows,
-  comorbidity_rows
 )
 ```
 
@@ -368,7 +256,8 @@ table_1 <- dplyr::bind_rows(
 knitr::kable(
   x = table_1,
   format = "pipe",
+  escape = FALSE,
   col.names = c("Χαρακτηριστικό", "Περιγραφικά στοιχεία"),
-  caption = "Πίνακας 1. Περιγραφικά χαρακτηριστικά όλων των ασθενών."
+  caption = "Πίνακας 1. Περιγραφικά χαρακτηριστικά των ασθενών."
 )
 ```
