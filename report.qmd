@@ -130,6 +130,10 @@ translate_categories <- function(values) {
       "επιβιωσε"
     ) ~ "Survived",
     normalized_values %in% c(
+      "έξοδος",
+      "εξοδος"
+    ) ~ "Discharged",
+    normalized_values %in% c(
       "dead",
       "deceased",
       "death",
@@ -137,7 +141,7 @@ translate_categories <- function(values) {
       "θανατος",
       "απεβίωσε",
       "απεβιωσε"
-    ) ~ "Died",
+    ) ~ "Death",
     TRUE ~ trimmed_values
   )
 }
