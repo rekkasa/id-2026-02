@@ -5,7 +5,11 @@ format:
   docx:
     toc: false
   pdf:
-    pdf-engine: xelatex
+    pdf-engine: typst
+    mainfont: "DejaVu Serif"
+    linkcolor: "#0000EE"
+    urlcolor: "#0000EE"
+    citecolor: "#0000EE"
     toc: false
 execute:
   echo: true
