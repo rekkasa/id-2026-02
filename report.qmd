@@ -391,20 +391,20 @@ measurement_labels <- tibble::tibble(
     "rising_time"
   ),
   label = c(
-    "Pressure support",
-    "PEEP",
-    "Tidal volume",
-    "Total minute ventilation",
-    "Fraction of inspired oxygen",
-    "Respiratory rate",
-    "Oxygen saturation",
+    "Pressure support (cmH2O)",
+    "PEEP (cmH2O)",
+    "Tidal volume (mL)",
+    "Total minute ventilation (L/min)",
+    "Fraction of inspired oxygen (%)",
+    "Respiratory rate (/min)",
+    "Oxygen saturation (%)",
     "Arterial pH",
-    "Arterial oxygen pressure",
-    "Arterial carbon dioxide pressure",
-    "Diastolic blood pressure",
-    "Systolic blood pressure",
-    "Heart rate",
-    "Norepinephrine rate",
+    "Arterial oxygen pressure (mmHg)",
+    "Arterial carbon dioxide pressure (mmHg)",
+    "Diastolic blood pressure (mmHg)",
+    "Systolic blood pressure (mmHg)",
+    "Heart rate (bpm)",
+    "Norepinephrine rate (mL/h)",
     "Ventilator sensitivity",
     "Expiratory sensitivity",
     "Rising time"
@@ -430,10 +430,22 @@ physiological_measurements <- physiological_assessments |>
   ) |>
   dplyr::mutate(
     value = parse_numeric(values = .data$value),
-    phase = dplyr::recode(
-      .data$phase,
-      before_physiotherapy = "Before physiotherapy",
-      after_physiotherapy = "After physiotherapy"
+    value = dplyr::case_when(
+      .data$measurement == "fraction_inspired_oxygen" &
+        !is.na(.data$value) &
+        .data$value <= 1 ~ .data$value * 100,
+      TRUE ~ .data$value
+    ),
+    phase = factor(
+      x = dplyr::recode(
+        .data$phase,
+        before_physiotherapy = "Before physiotherapy",
+        after_physiotherapy = "After physiotherapy"
+      ),
+      levels = c(
+        "Before physiotherapy",
+        "After physiotherapy"
+      )
     ),
     measurement = factor(
       x = .data$label,
@@ -471,15 +483,20 @@ make_physiological_boxplot <- function(data, title) {
       title = title,
       subtitle = "Before versus after physiotherapy",
       x = NULL,
-      y = "Value"
+      y = NULL
+    ) +
+    ggplot2::facet_wrap(
+      facets = ggplot2::vars(measurement),
+      scales = "free_y",
+      ncol = 2
     ) +
     ggplot2::theme_minimal(base_size = 10) +
     ggplot2::theme(
       axis.text.x = ggplot2::element_text(
-        angle = 45,
-        hjust = 1,
-        vjust = 1
+        angle = 0,
+        hjust = 0.5
       ),
+      strip.text = ggplot2::element_text(face = "bold"),
       legend.position = "top"
     )
 }
@@ -521,7 +538,7 @@ ventilator_control_plot <- make_physiological_boxplot(
 #| label: fig-ventilator-settings
 #| fig-cap: "Ventilator settings before and after physiotherapy."
 #| fig-width: 11
-#| fig-height: 6
+#| fig-height: 9
 #| dev: ragg_png
 
 ventilator_settings_plot
@@ -530,8 +547,8 @@ ventilator_settings_plot
 ```{r}
 #| label: fig-oxygenation-gas-exchange
 #| fig-cap: "Oxygenation and gas exchange before and after physiotherapy."
-#| fig-width: 9
-#| fig-height: 6
+#| fig-width: 10
+#| fig-height: 8
 #| dev: ragg_png
 
 oxygenation_plot
@@ -541,7 +558,7 @@ oxygenation_plot
 #| label: fig-hemodynamics
 #| fig-cap: "Hemodynamic measurements before and after physiotherapy."
 #| fig-width: 10
-#| fig-height: 6
+#| fig-height: 8
 #| dev: ragg_png
 
 hemodynamics_plot
