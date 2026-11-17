@@ -366,11 +366,7 @@ knitr::kable(
 ## Physiological assessments with physiotherapy
 
 ```{r}
-#| label: fig-physiological-boxplots
-#| fig-cap: "Physiological assessments before and after physiotherapy."
-#| fig-width: 14
-#| fig-height: 8
-#| dev: ragg_png
+#| include: false
 
 plot_device <- ragg::agg_png
 
@@ -382,15 +378,14 @@ measurement_labels <- tibble::tibble(
     "total_minute_ventilation",
     "fraction_inspired_oxygen",
     "respiratory_rate",
-    "t_piece",
     "oxygen_saturation",
+    "arterial_ph",
+    "arterial_oxygen_pressure",
+    "arterial_carbon_dioxide_pressure",
     "blood_pressure_diastolic",
     "blood_pressure_systolic",
     "heart_rate",
     "norepinephrine_rate",
-    "arterial_ph",
-    "arterial_oxygen_pressure",
-    "arterial_carbon_dioxide_pressure",
     "ventilator_sensitivity",
     "expiratory_sensitivity",
     "rising_time"
@@ -402,18 +397,23 @@ measurement_labels <- tibble::tibble(
     "Total minute ventilation",
     "Fraction of inspired oxygen",
     "Respiratory rate",
-    "T-piece",
     "Oxygen saturation",
+    "Arterial pH",
+    "Arterial oxygen pressure",
+    "Arterial carbon dioxide pressure",
     "Diastolic blood pressure",
     "Systolic blood pressure",
     "Heart rate",
     "Norepinephrine rate",
-    "Arterial pH",
-    "Arterial oxygen pressure",
-    "Arterial carbon dioxide pressure",
     "Ventilator sensitivity",
     "Expiratory sensitivity",
     "Rising time"
+  ),
+  group = c(
+    rep("Ventilator settings", times = 6L),
+    rep("Oxygenation and gas exchange", times = 4L),
+    rep("Hemodynamics", times = 4L),
+    rep("Ventilator control and timing", times = 3L)
   )
 )
 
@@ -440,47 +440,119 @@ physiological_measurements <- physiological_assessments |>
       levels = measurement_labels$label
     )
   ) |>
-  dplyr::filter(!is.na(.data$value))
+  dplyr::filter(!is.na(.data$value), !is.na(.data$label))
 
-physiological_boxplot <- ggplot2::ggplot(
-  data = physiological_measurements,
-  mapping = ggplot2::aes(
-    x = .data$measurement,
-    y = .data$value,
-    fill = .data$phase
-  )
-) +
-  ggplot2::geom_boxplot(
-    position = ggplot2::position_dodge2(
-      width = 0.8,
-      preserve = "single"
-    ),
-    width = 0.7,
-    outlier.alpha = 0.35,
-    na.rm = TRUE
+make_physiological_boxplot <- function(data, title) {
+  ggplot2::ggplot(
+    data = data,
+    mapping = ggplot2::aes(
+      x = .data$measurement,
+      y = .data$value,
+      fill = .data$phase
+    )
   ) +
-  ggplot2::scale_fill_manual(
-    values = c(
-      "Before physiotherapy" = "#4472C4",
-      "After physiotherapy" = "#ED7D31"
-    ),
-    name = "Phase"
-  ) +
-  ggplot2::labs(
-    title = "Physiological assessments with physiotherapy",
-    subtitle = "Before versus after physiotherapy",
-    x = NULL,
-    y = "Value"
-  ) +
-  ggplot2::theme_minimal(base_size = 10) +
-  ggplot2::theme(
-    axis.text.x = ggplot2::element_text(
-      angle = 45,
-      hjust = 1,
-      vjust = 1
-    ),
-    legend.position = "top"
-  )
+    ggplot2::geom_boxplot(
+      position = ggplot2::position_dodge2(
+        width = 0.8,
+        preserve = "single"
+      ),
+      width = 0.7,
+      outlier.alpha = 0.35,
+      na.rm = TRUE
+    ) +
+    ggplot2::scale_fill_manual(
+      values = c(
+        "Before physiotherapy" = "#4472C4",
+        "After physiotherapy" = "#ED7D31"
+      ),
+      name = "Phase"
+    ) +
+    ggplot2::labs(
+      title = title,
+      subtitle = "Before versus after physiotherapy",
+      x = NULL,
+      y = "Value"
+    ) +
+    ggplot2::theme_minimal(base_size = 10) +
+    ggplot2::theme(
+      axis.text.x = ggplot2::element_text(
+        angle = 45,
+        hjust = 1,
+        vjust = 1
+      ),
+      legend.position = "top"
+    )
+}
 
-physiological_boxplot
+ventilator_settings_plot <- make_physiological_boxplot(
+  data = physiological_measurements |>
+    dplyr::filter(
+      .data$group == "Ventilator settings"
+    ),
+  title = "Ventilator settings"
+)
+
+oxygenation_plot <- make_physiological_boxplot(
+  data = physiological_measurements |>
+    dplyr::filter(
+      .data$group == "Oxygenation and gas exchange"
+    ),
+  title = "Oxygenation and gas exchange"
+)
+
+hemodynamics_plot <- make_physiological_boxplot(
+  data = physiological_measurements |>
+    dplyr::filter(
+      .data$group == "Hemodynamics"
+    ),
+  title = "Hemodynamics"
+)
+
+ventilator_control_plot <- make_physiological_boxplot(
+  data = physiological_measurements |>
+    dplyr::filter(
+      .data$group == "Ventilator control and timing"
+    ),
+  title = "Ventilator control and timing"
+)
+```
+
+```{r}
+#| label: fig-ventilator-settings
+#| fig-cap: "Ventilator settings before and after physiotherapy."
+#| fig-width: 11
+#| fig-height: 6
+#| dev: ragg_png
+
+ventilator_settings_plot
+```
+
+```{r}
+#| label: fig-oxygenation-gas-exchange
+#| fig-cap: "Oxygenation and gas exchange before and after physiotherapy."
+#| fig-width: 9
+#| fig-height: 6
+#| dev: ragg_png
+
+oxygenation_plot
+```
+
+```{r}
+#| label: fig-hemodynamics
+#| fig-cap: "Hemodynamic measurements before and after physiotherapy."
+#| fig-width: 10
+#| fig-height: 6
+#| dev: ragg_png
+
+hemodynamics_plot
+```
+
+```{r}
+#| label: fig-ventilator-control-timing
+#| fig-cap: "Ventilator control and timing before and after physiotherapy."
+#| fig-width: 9
+#| fig-height: 6
+#| dev: ragg_png
+
+ventilator_control_plot
 ```
