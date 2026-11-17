@@ -141,6 +141,25 @@ testthat::test_that(
 )
 
 testthat::test_that(
+  desc = "the sleep percentage parser removes percentage suffixes",
+  code = {
+    percentage <- parse_sleep_percentage_cell(value = "87.5%")
+    comma_percentage <- parse_sleep_percentage_cell(value = "42,25 %")
+    blank_value <- parse_sleep_percentage_cell(value = NA_character_)
+    invalid_value <- parse_sleep_percentage_cell(value = "87.5")
+
+    testthat::expect_identical(percentage$value, 87.5)
+    testthat::expect_true(percentage$valid)
+    testthat::expect_identical(comma_percentage$value, 42.25)
+    testthat::expect_true(comma_percentage$valid)
+    testthat::expect_identical(blank_value$value, NA_real_)
+    testthat::expect_true(blank_value$valid)
+    testthat::expect_false(invalid_value$valid)
+    testthat::expect_identical(invalid_value$raw_kind, "unsupported_text")
+  }
+)
+
+testthat::test_that(
   desc = "the hand-grip parser splits right and left strengths",
   code = {
     strengths <- parse_hand_grip_strength_cell(value = "27.5 (R) 24 (L)")
@@ -229,9 +248,10 @@ testthat::test_that(
       conn = connection,
       statement = stringr::str_c(
         'SELECT "assessment_id", "patient_id", "assessment", "time_in_bed",',
-        '"total_sleep_time",',
+        '"total_sleep_time", "sleep_efficiency",',
         '"wake_after_sleep_onset", "sleep_latency", "stage1_duration",',
-        '"stage2_duration", "slow_wave_sleep_duration", "arousal_index"',
+        '"stage1_percent_tst", "stage2_duration", "stage2_percent_tst",',
+        '"slow_wave_sleep_duration", "arousal_index"',
         'FROM "sleep_assessments"',
         'ORDER BY "assessment_id"',
         sep = " "
@@ -243,10 +263,13 @@ testthat::test_that(
         'SELECT typeof("assessment_id") AS "assessment_id_type",',
         'typeof("time_in_bed") AS "time_in_bed_type",',
         'typeof("total_sleep_time") AS "total_sleep_time_type",',
+        'typeof("sleep_efficiency") AS "sleep_efficiency_type",',
         'typeof("wake_after_sleep_onset") AS "wake_after_sleep_onset_type",',
         'typeof("sleep_latency") AS "sleep_latency_type",',
         'typeof("stage1_duration") AS "stage1_duration_type",',
+        'typeof("stage1_percent_tst") AS "stage1_percent_tst_type",',
         'typeof("stage2_duration") AS "stage2_duration_type",',
+        'typeof("stage2_percent_tst") AS "stage2_percent_tst_type",',
         'typeof("slow_wave_sleep_duration")',
         'AS "slow_wave_sleep_duration_type",',
         'typeof("arousal_index") AS "arousal_index_type"',
@@ -275,13 +298,22 @@ testthat::test_that(
     )
     testthat::expect_identical(sleep_values$time_in_bed, c(525, 495))
     testthat::expect_identical(sleep_values$total_sleep_time, c(465, 450))
+    testthat::expect_identical(sleep_values$sleep_efficiency, c(91, 88))
     testthat::expect_identical(
       sleep_values$wake_after_sleep_onset,
       c(12, 15.5)
     )
     testthat::expect_identical(sleep_values$sleep_latency, c(8, 10))
     testthat::expect_identical(sleep_values$stage1_duration, c(25, 30))
+    testthat::expect_identical(
+      sleep_values$stage1_percent_tst,
+      c(4, 5)
+    )
     testthat::expect_identical(sleep_values$stage2_duration, c(250, 240))
+    testthat::expect_identical(
+      sleep_values$stage2_percent_tst,
+      c(52, 50)
+    )
     testthat::expect_identical(
       sleep_values$slow_wave_sleep_duration,
       c(85, 90)
@@ -289,7 +321,7 @@ testthat::test_that(
     testthat::expect_identical(sleep_values$arousal_index, c(12, 18.5))
     testthat::expect_identical(
       as.character(sleep_types[1L, ]),
-      c("INTEGER", rep(x = "DOUBLE", times = 8L))
+      c("INTEGER", rep(x = "DOUBLE", times = 11L))
     )
   }
 )

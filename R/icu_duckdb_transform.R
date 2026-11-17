@@ -389,8 +389,20 @@ arousal_index_source_column_names <- c(
   "with_arousal_index"
 )
 
+sleep_percentage_source_column_names <- c(
+  "without_sleep_efficiency",
+  "without_stage1_percent_tst",
+  "without_stage2_percent_tst",
+  "with_sleep_efficiency",
+  "with_stage1_percent_tst",
+  "with_stage2_percent_tst"
+)
+
 sleep_numeric_column_names <- c(
   sleep_duration_column_names,
+  "sleep_efficiency",
+  "stage1_percent_tst",
+  "stage2_percent_tst",
   "arousal_index"
 )
 
@@ -1208,6 +1220,107 @@ parse_sleep_duration_column <- function(
   )
 }
 
+parse_sleep_percentage_cell <- function(value) {
+  if (is_missing_source_value(value)) {
+    return(list(
+      value = NA_real_,
+      raw_kind = "blank",
+      valid = TRUE
+    ))
+  }
+
+  if (!is.character(value)) {
+    return(list(
+      value = NA_real_,
+      raw_kind = "unsupported_type",
+      valid = FALSE
+    ))
+  }
+
+  components <- stringr::str_match(
+    string = normalize_text(values = value),
+    pattern = "^([0-9]+(?:[.,][0-9]+)?)\\s*%$"
+  )
+  if (is.na(components[, 1L])) {
+    return(list(
+      value = NA_real_,
+      raw_kind = "unsupported_text",
+      valid = FALSE
+    ))
+  }
+
+  list(
+    value = as.numeric(stringr::str_replace(
+      string = components[, 2L],
+      pattern = ",",
+      replacement = "."
+    )),
+    raw_kind = "text_percentage",
+    valid = TRUE
+  )
+}
+
+parse_sleep_percentage_column <- function(
+    values,
+    column_name,
+    source_sheet,
+    source_row_numbers) {
+  parsed_cells <- purrr::map(
+    .x = values,
+    .f = parse_sleep_percentage_cell
+  )
+  valid_values <- purrr::map_lgl(
+    .x = parsed_cells,
+    .f = function(parsed_cell) parsed_cell$valid
+  )
+
+  if (any(!valid_values)) {
+    invalid_rows <- source_row_numbers[!valid_values]
+    invalid_kinds <- purrr::map_chr(
+      .x = parsed_cells[!valid_values],
+      .f = function(parsed_cell) parsed_cell$raw_kind
+    ) |>
+      tibble::tibble(raw_kind = _) |>
+      dplyr::count(.data$raw_kind, name = "row_count") |>
+      dplyr::transmute(
+        summary = stringr::str_c(.data$raw_kind, "=", .data$row_count)
+      ) |>
+      dplyr::pull(var = "summary") |>
+      stringr::str_c(collapse = ", ")
+    rlang::abort(
+      message = glue::glue(
+        "Worksheet '{source_sheet}' contains invalid sleep percentage ",
+        "values in '{column_name}' at Excel row(s): ",
+        "{stringr::str_c(invalid_rows, collapse = ', ')} ",
+        "(types: {invalid_kinds})."
+      )
+    )
+  }
+
+  purrr::map_dbl(
+    .x = parsed_cells,
+    .f = function(parsed_cell) parsed_cell$value
+  )
+}
+
+parse_sleep_percentage_columns <- function(source_rows, source_sheet) {
+  percentage_columns <- intersect(
+    x = sleep_percentage_source_column_names,
+    y = names(source_rows)
+  )
+
+  for (column_name in percentage_columns) {
+    source_rows[[column_name]] <- parse_sleep_percentage_column(
+      values = source_rows[[column_name]],
+      column_name = column_name,
+      source_sheet = source_sheet,
+      source_row_numbers = source_rows$source_row_number
+    )
+  }
+
+  source_rows
+}
+
 parse_arousal_index_cell <- function(value) {
   if (is_missing_source_value(value)) {
     return(list(
@@ -1642,6 +1755,10 @@ read_source_rows <- function(input_path, sheet_layout) {
     source_sheet = sheet_layout$sheet_name
   )
   source_rows <- parse_sleep_duration_columns(
+    source_rows = source_rows,
+    source_sheet = sheet_layout$sheet_name
+  )
+  source_rows <- parse_sleep_percentage_columns(
     source_rows = source_rows,
     source_sheet = sheet_layout$sheet_name
   )
@@ -2509,14 +2626,14 @@ create_duckdb_schema <- function(connection) {
       ),
       "time_in_bed" DOUBLE,
       "total_sleep_time" DOUBLE,
-      "sleep_efficiency" VARCHAR,
+      "sleep_efficiency" DOUBLE,
       "wake_after_sleep_onset" DOUBLE,
       "sleep_latency" DOUBLE,
       "stage_shifts" VARCHAR,
       "stage1_duration" DOUBLE,
-      "stage1_percent_tst" VARCHAR,
+      "stage1_percent_tst" DOUBLE,
       "stage2_duration" DOUBLE,
-      "stage2_percent_tst" VARCHAR,
+      "stage2_percent_tst" DOUBLE,
       "slow_wave_sleep_duration" DOUBLE,
       "slow_wave_sleep_percent_tst" VARCHAR,
       "rem_sleep_duration" VARCHAR,
