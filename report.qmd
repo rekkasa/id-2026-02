@@ -40,16 +40,30 @@ connection <- DBI::dbConnect(
   read_only = TRUE
 )
 
-icu_admissions <- tryCatch(
-  expr = DBI::dbGetQuery(
-    conn = connection,
-    statement = stringr::str_c(
-      "SELECT age_years, sex, apache_ii_score,",
-      "mechanical_ventilation_days, icu_stay_days,",
-      "icu_outcome, hospital_outcome",
-      "FROM icu_admissions",
-      "ORDER BY patient_id",
-      sep = " "
+query_result <- tryCatch(
+  expr = list(
+    icu_admissions = DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        "SELECT age_years, sex, apache_ii_score,",
+        "mechanical_ventilation_days, icu_stay_days,",
+        "icu_outcome, hospital_outcome",
+        "FROM icu_admissions",
+        "ORDER BY patient_id",
+        sep = " "
+      )
+    ),
+    patient_clinical_status = DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        "SELECT rass_score, vas_score, cam_icu_result,",
+        "borg_score, borg_rpe_score,",
+        "hand_grip_strength_right, hand_grip_strength_left,",
+        "mrc_score, icu_mobility_score",
+        "FROM patient_clinical_status",
+        "ORDER BY patient_id",
+        sep = " "
+      )
     )
   ),
   finally = DBI::dbDisconnect(
@@ -57,6 +71,9 @@ icu_admissions <- tryCatch(
     shutdown = TRUE
   )
 )
+
+icu_admissions <- query_result$icu_admissions
+patient_clinical_status <- query_result$patient_clinical_status
 ```
 
 ## Table 1
@@ -170,12 +187,17 @@ summarise_continuous <- function(label, values) {
     )
   }
 
+  missing_text <- if (missing_count > 0L) {
+    stringr::str_c("; missing: ", missing_count)
+  } else {
+    ""
+  }
+
   tibble::tibble(
     variable = label,
     summary = stringr::str_c(
       summary_text,
-      "; missing: ",
-      missing_count
+      missing_text
     )
   )
 }
@@ -257,6 +279,45 @@ table_1 <- dplyr::bind_rows(
     denominator = n_patients
   )
 )
+
+table_2 <- dplyr::bind_rows(
+  summarise_continuous(
+    label = "RASS score",
+    values = patient_clinical_status$rass_score
+  ),
+  summarise_continuous(
+    label = "VAS score",
+    values = patient_clinical_status$vas_score
+  ),
+  summarise_continuous(
+    label = "CAM-ICU result",
+    values = patient_clinical_status$cam_icu_result
+  ),
+  summarise_continuous(
+    label = "Borg score",
+    values = patient_clinical_status$borg_score
+  ),
+  summarise_continuous(
+    label = "Borg RPE score",
+    values = patient_clinical_status$borg_rpe_score
+  ),
+  summarise_continuous(
+    label = "Right hand-grip strength",
+    values = patient_clinical_status$hand_grip_strength_right
+  ),
+  summarise_continuous(
+    label = "Left hand-grip strength",
+    values = patient_clinical_status$hand_grip_strength_left
+  ),
+  summarise_continuous(
+    label = "MRC score",
+    values = patient_clinical_status$mrc_score
+  ),
+  summarise_continuous(
+    label = "ICU Mobility score",
+    values = patient_clinical_status$icu_mobility_score
+  )
+)
 ```
 
 ```{r}
@@ -266,5 +327,16 @@ knitr::kable(
   escape = FALSE,
   col.names = c("Characteristic", "Descriptive statistics"),
   caption = "Table 1. Descriptive characteristics of patients."
+)
+```
+
+## Table 2
+
+```{r}
+knitr::kable(
+  x = table_2,
+  format = "pipe",
+  col.names = c("Patient status", "Descriptive statistics"),
+  caption = "Table 2. Patient clinical status."
 )
 ```
