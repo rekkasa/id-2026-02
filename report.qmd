@@ -847,6 +847,8 @@ sleep_stage_composition_plot
 sleep_quality_plot
 ```
 
+{{< pagebreak >}}
+
 ## Sleep assessment comparisons
 
 ```{r}
