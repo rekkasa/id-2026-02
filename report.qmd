@@ -88,6 +88,21 @@ query_result <- tryCatch(
         "ORDER BY patient_id, phase",
         sep = " "
       )
+    ),
+    sleep_assessments = DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        "SELECT patient_id, assessment, time_in_bed, total_sleep_time,",
+        "sleep_efficiency, wake_after_sleep_onset, sleep_latency,",
+        "stage_shifts, stage1_duration, stage1_percent_tst,",
+        "stage2_duration, stage2_percent_tst,",
+        "slow_wave_sleep_duration, slow_wave_sleep_percent_tst,",
+        "rem_sleep_duration, rem_sleep_percent_tst, arousal_index,",
+        "rcsq_score",
+        "FROM sleep_assessments",
+        "ORDER BY patient_id, assessment",
+        sep = " "
+      )
     )
   ),
   finally = DBI::dbDisconnect(
@@ -99,6 +114,7 @@ query_result <- tryCatch(
 icu_admissions <- query_result$icu_admissions
 patient_clinical_status <- query_result$patient_clinical_status
 physiological_assessments <- query_result$physiological_assessments
+sleep_assessments <- query_result$sleep_assessments
 ```
 
 ## Table 1
@@ -110,6 +126,9 @@ parse_numeric <- function(values) {
     stringr::str_replace_all(
       pattern = ",",
       replacement = "."
+    ) |>
+    stringr::str_remove(
+      pattern = "%$"
     ) |>
     dplyr::na_if(y = "")
 
@@ -366,7 +385,7 @@ knitr::kable(
 )
 ```
 
-## Physiological assessments with physiotherapy
+## Physiological assessments
 
 ```{r}
 #| include: false
@@ -381,6 +400,7 @@ measurement_labels <- tibble::tibble(
     "total_minute_ventilation",
     "fraction_inspired_oxygen",
     "respiratory_rate",
+    "t_piece",
     "oxygen_saturation",
     "arterial_ph",
     "arterial_oxygen_pressure",
@@ -400,6 +420,7 @@ measurement_labels <- tibble::tibble(
     "Total minute ventilation (L/min)",
     "Fraction of inspired oxygen (%)",
     "Respiratory rate (/min)",
+    "T-piece",
     "Oxygen saturation (%)",
     "Arterial pH",
     "Arterial oxygen pressure (mmHg)",
@@ -413,7 +434,7 @@ measurement_labels <- tibble::tibble(
     "Rising time"
   ),
   group = c(
-    rep("Ventilator settings", times = 6L),
+    rep("Ventilator settings", times = 7L),
     rep("Oxygenation and gas exchange", times = 4L),
     rep("Hemodynamics", times = 4L),
     rep("Ventilator control and timing", times = 3L)
@@ -571,6 +592,177 @@ ventilator_control_plot <- make_physiological_boxplot(
     ),
   title = "Ventilator control and timing"
 )
+
+sleep_measurement_labels <- tibble::tibble(
+  measurement = c(
+    "time_in_bed",
+    "total_sleep_time",
+    "wake_after_sleep_onset",
+    "sleep_latency",
+    "stage1_duration",
+    "stage2_duration",
+    "slow_wave_sleep_duration",
+    "rem_sleep_duration",
+    "stage1_percent_tst",
+    "stage2_percent_tst",
+    "slow_wave_sleep_percent_tst",
+    "rem_sleep_percent_tst",
+    "sleep_efficiency",
+    "stage_shifts",
+    "arousal_index",
+    "rcsq_score"
+  ),
+  label = c(
+    "Time in bed (min)",
+    "Total sleep time (min)",
+    "Wake after sleep onset (min)",
+    "Sleep latency (min)",
+    "Stage 1 duration (min)",
+    "Stage 2 duration (min)",
+    "Slow-wave sleep duration (min)",
+    "REM sleep duration (min)",
+    "Stage 1 (% of TST)",
+    "Stage 2 (% of TST)",
+    "Slow-wave sleep (% of TST)",
+    "REM sleep (% of TST)",
+    "Sleep efficiency (%)",
+    "Stage shifts",
+    "Arousal index (/h)",
+    "RCSQ score"
+  ),
+  group = c(
+    rep("Sleep timing", times = 4L),
+    rep("Sleep-stage duration", times = 4L),
+    rep("Sleep-stage composition", times = 4L),
+    rep("Sleep quality and arousal", times = 4L)
+  )
+)
+
+sleep_measurements <- sleep_assessments |>
+  tidyr::pivot_longer(
+    cols = -c("patient_id", "assessment"),
+    names_to = "measurement",
+    values_to = "value",
+    values_transform = list(value = as.character)
+  ) |>
+  dplyr::left_join(
+    y = sleep_measurement_labels,
+    by = "measurement"
+  ) |>
+  dplyr::mutate(
+    value = parse_numeric(values = .data$value),
+    assessment = dplyr::recode(
+      .data$assessment,
+      with_physiotherapy = "With physiotherapy",
+      without_physiotherapy = "Without physiotherapy"
+    ),
+    assessment = factor(
+      x = .data$assessment,
+      levels = c("With physiotherapy", "Without physiotherapy")
+    ),
+    measurement = factor(
+      x = .data$label,
+      levels = sleep_measurement_labels$label
+    )
+  ) |>
+  dplyr::filter(
+    !is.na(.data$value),
+    !is.na(.data$label),
+    !is.na(.data$assessment)
+  )
+
+make_sleep_boxplot <- function(data, title) {
+  if (nrow(x = data) == 0L) {
+    return(
+      ggplot2::ggplot() +
+        ggplot2::annotate(
+          geom = "text",
+          x = 1,
+          y = 1,
+          label = "No numeric observations available"
+        ) +
+        ggplot2::labs(
+          title = title,
+          subtitle = "This measurement group was not available."
+        ) +
+        ggplot2::theme_void()
+    )
+  }
+
+  ggplot2::ggplot(
+    data = data,
+    mapping = ggplot2::aes(
+      x = .data$assessment,
+      y = .data$value,
+      fill = .data$assessment
+    )
+  ) +
+    ggplot2::geom_boxplot(
+      width = 0.7,
+      outlier.alpha = 0.35,
+      na.rm = TRUE
+    ) +
+    ggplot2::scale_fill_manual(
+      values = c(
+        "With physiotherapy" = "#4472C4",
+        "Without physiotherapy" = "#70AD47"
+      ),
+      name = "Assessment"
+    ) +
+    ggplot2::labs(
+      title = title,
+      subtitle = "With and without physiotherapy",
+      x = NULL,
+      y = NULL
+    ) +
+    ggplot2::facet_wrap(
+      facets = ggplot2::vars(measurement),
+      scales = "free_y",
+      ncol = 2
+    ) +
+    ggplot2::theme_minimal(base_size = 10) +
+    ggplot2::theme(
+      axis.text.x = ggplot2::element_text(
+        angle = 45,
+        hjust = 1,
+        vjust = 1
+      ),
+      strip.text = ggplot2::element_text(face = "bold"),
+      legend.position = "top"
+    )
+}
+
+sleep_timing_plot <- make_sleep_boxplot(
+  data = sleep_measurements |>
+    dplyr::filter(
+      .data$group == "Sleep timing"
+    ),
+  title = "Sleep timing"
+)
+
+sleep_stage_duration_plot <- make_sleep_boxplot(
+  data = sleep_measurements |>
+    dplyr::filter(
+      .data$group == "Sleep-stage duration"
+    ),
+  title = "Sleep-stage duration"
+)
+
+sleep_stage_composition_plot <- make_sleep_boxplot(
+  data = sleep_measurements |>
+    dplyr::filter(
+      .data$group == "Sleep-stage composition"
+    ),
+  title = "Sleep-stage composition"
+)
+
+sleep_quality_plot <- make_sleep_boxplot(
+  data = sleep_measurements |>
+    dplyr::filter(
+      .data$group == "Sleep quality and arousal"
+    ),
+  title = "Sleep quality and arousal"
+)
 ```
 
 ```{r}
@@ -611,4 +803,46 @@ hemodynamics_plot
 #| dev: ragg_png
 
 ventilator_control_plot
+```
+
+## Sleep assessments
+
+```{r}
+#| label: fig-sleep-timing
+#| fig-cap: "Sleep timing with and without physiotherapy."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sleep_timing_plot
+```
+
+```{r}
+#| label: fig-sleep-stage-duration
+#| fig-cap: "Sleep-stage duration with and without physiotherapy."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sleep_stage_duration_plot
+```
+
+```{r}
+#| label: fig-sleep-stage-composition
+#| fig-cap: "Sleep-stage composition with and without physiotherapy."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sleep_stage_composition_plot
+```
+
+```{r}
+#| label: fig-sleep-quality
+#| fig-cap: "Sleep quality and arousal with and without physiotherapy."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sleep_quality_plot
 ```
