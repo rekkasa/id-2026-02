@@ -1,6 +1,6 @@
 ---
-title: "Περιγραφική στατιστική ασθενών"
-lang: el
+title: "Descriptive Statistics of Patients"
+lang: en
 format:
   docx:
     toc: false
@@ -12,7 +12,7 @@ format:
     citecolor: "#0000EE"
     toc: false
 execute:
-  echo: true
+  echo: false
   warning: false
   message: false
 knitr:
@@ -20,7 +20,7 @@ knitr:
     dev: pdf
 ---
 
-# Περιγραφικά χαρακτηριστικά ασθενών
+# Descriptive Characteristics of Patients
 
 ```{r}
 db_path <- fs::path("data.duckdb")
@@ -28,8 +28,7 @@ db_path <- fs::path("data.duckdb")
 if (!fs::file_exists(path = db_path)) {
   rlang::abort(
     message = stringr::str_c(
-      "Δεν βρέθηκε το αρχείο data.duckdb στον",
-      "ριζικό κατάλογο του έργου.",
+      "The data.duckdb file was not found in the project root.",
       sep = " "
     )
   )
@@ -60,7 +59,7 @@ icu_admissions <- tryCatch(
 )
 ```
 
-## Πίνακας 1
+## Table 1
 
 ```{r}
 parse_numeric <- function(values) {
@@ -82,7 +81,7 @@ format_number <- function(value, digits = 1L) {
     x = value,
     format = "f",
     digits = digits,
-    decimal.mark = ","
+    decimal.mark = "."
   )
 }
 
@@ -112,7 +111,7 @@ translate_categories <- function(values) {
       "ανδρας",
       "άρρεν",
       "αρρεν"
-    ) ~ "Άνδρας",
+    ) ~ "Male",
     normalized_values %in% c(
       "female",
       "f",
@@ -120,7 +119,7 @@ translate_categories <- function(values) {
       "γυναικα",
       "θήλυ",
       "θηλυ"
-    ) ~ "Γυναίκα",
+    ) ~ "Female",
     normalized_values %in% c(
       "alive",
       "survived",
@@ -129,7 +128,7 @@ translate_categories <- function(values) {
       "επιβιωση",
       "επιβίωσε",
       "επιβιωσε"
-    ) ~ "Επιβίωση",
+    ) ~ "Survived",
     normalized_values %in% c(
       "dead",
       "deceased",
@@ -138,7 +137,7 @@ translate_categories <- function(values) {
       "θανατος",
       "απεβίωσε",
       "απεβιωσε"
-    ) ~ "Θάνατος",
+    ) ~ "Died",
     TRUE ~ trimmed_values
   )
 }
@@ -149,7 +148,7 @@ summarise_continuous <- function(label, values) {
   missing_count <- sum(x = is.na(numeric_values))
 
   if (length(x = available_values) == 0L) {
-    summary_text <- "Μη διαθέσιμα"
+    summary_text <- "Not available"
   } else {
     quartiles <- stats::quantile(
       x = available_values,
@@ -171,7 +170,7 @@ summarise_continuous <- function(label, values) {
     variable = label,
     summary = stringr::str_c(
       summary_text,
-      "; ελλείποντα: ",
+      "; missing: ",
       missing_count
     )
   )
@@ -181,7 +180,7 @@ summarise_categorical <- function(label, values, denominator) {
   translated_values <- translate_categories(values = values)
   translated_values <- dplyr::if_else(
     condition = is.na(translated_values) | translated_values == "",
-    true = "Μη διαθέσιμο",
+    true = "Not available",
     false = translated_values
   )
 
@@ -203,49 +202,53 @@ summarise_categorical <- function(label, values, denominator) {
       )
     )
 
-  tibble::tibble(
-    variable = label,
-    summary = stringr::str_c(
-      counts$category,
-      ": ",
-      counts$display,
-      sep = "",
-      collapse = "<br>"
+  counts |>
+    dplyr::transmute(
+      variable = dplyr::if_else(
+        condition = dplyr::row_number() == 1L,
+        true = label,
+        false = ""
+      ),
+      summary = stringr::str_c(
+        .data$category,
+        ": ",
+        .data$display,
+        sep = ""
+      )
     )
-  )
 }
 
 n_patients <- nrow(x = icu_admissions)
 
 table_1 <- dplyr::bind_rows(
   summarise_continuous(
-    label = "Ηλικία (έτη)",
+    label = "Age (years)",
     values = icu_admissions$age_years
   ),
   summarise_categorical(
-    label = "Φύλο",
+    label = "Sex",
     values = icu_admissions$sex,
     denominator = n_patients
   ),
   summarise_continuous(
-    label = "Βαθμολογία APACHE II",
+    label = "APACHE II score",
     values = icu_admissions$apache_ii_score
   ),
   summarise_continuous(
-    label = "Ημέρες μηχανικού αερισμού",
+    label = "Mechanical ventilation days",
     values = icu_admissions$mechanical_ventilation_days
   ),
   summarise_continuous(
-    label = "Ημέρες παραμονής στη ΜΕΘ",
+    label = "ICU stay days",
     values = icu_admissions$icu_stay_days
   ),
   summarise_categorical(
-    label = "Έκβαση στη ΜΕΘ",
+    label = "ICU outcome",
     values = icu_admissions$icu_outcome,
     denominator = n_patients
   ),
   summarise_categorical(
-    label = "Ενδονοσοκομειακή έκβαση",
+    label = "In-hospital outcome",
     values = icu_admissions$hospital_outcome,
     denominator = n_patients
   )
@@ -257,7 +260,7 @@ knitr::kable(
   x = table_1,
   format = "pipe",
   escape = FALSE,
-  col.names = c("Χαρακτηριστικό", "Περιγραφικά στοιχεία"),
-  caption = "Πίνακας 1. Περιγραφικά χαρακτηριστικά των ασθενών."
+  col.names = c("Characteristic", "Descriptive statistics"),
+  caption = "Table 1. Descriptive characteristics of patients."
 )
 ```
