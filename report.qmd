@@ -455,6 +455,23 @@ physiological_measurements <- physiological_assessments |>
   dplyr::filter(!is.na(.data$value), !is.na(.data$label))
 
 make_physiological_boxplot <- function(data, title) {
+  if (nrow(x = data) == 0L) {
+    return(
+      ggplot2::ggplot() +
+        ggplot2::annotate(
+          geom = "text",
+          x = 1,
+          y = 1,
+          label = "No numeric observations available"
+        ) +
+        ggplot2::labs(
+          title = title,
+          subtitle = "This measurement group was not available."
+        ) +
+        ggplot2::theme_void()
+    )
+  }
+
   ggplot2::ggplot(
     data = data,
     mapping = ggplot2::aes(
