@@ -576,7 +576,8 @@ testthat::test_that(
       statement = stringr::str_c(
         'SELECT "assessment_id", "patient_id", "assessment", "phase",',
         '"blood_pressure_diastolic",',
-        '"blood_pressure_systolic" FROM "physiological_assessments"',
+        '"blood_pressure_systolic", "noradrenaline_rate"',
+        'FROM "physiological_assessments"',
         'ORDER BY "assessment_id"',
         sep = " "
       )
@@ -600,13 +601,17 @@ testthat::test_that(
     testthat::expect_false(
       "assessment_phase" %in% physiological_assessment_columns
     )
+    testthat::expect_false(
+      "norepinephrine_rate" %in% physiological_assessment_columns
+    )
     testthat::expect_true(all(c(
       "assessment_id",
       "patient_id",
       "assessment",
       "phase",
       "blood_pressure_diastolic",
-      "blood_pressure_systolic"
+      "blood_pressure_systolic",
+      "noradrenaline_rate"
     ) %in% physiological_assessment_columns))
     testthat::expect_equal(
       physiological_assessment_values$assessment_id,
@@ -641,6 +646,10 @@ testthat::test_that(
     testthat::expect_identical(
       physiological_assessment_values$blood_pressure_systolic,
       c(120, 118, 116, 115)
+    )
+    testthat::expect_identical(
+      physiological_assessment_values$noradrenaline_rate,
+      c("1.5", "2.5", "3.5", "4.5")
     )
     testthat::expect_identical(
       as.character(physiological_assessment_types[1L, ]),

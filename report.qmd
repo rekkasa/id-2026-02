@@ -73,7 +73,7 @@ query_result <- tryCatch(
         "total_minute_ventilation, fraction_inspired_oxygen,",
         "respiratory_rate, t_piece, oxygen_saturation,",
         "blood_pressure_diastolic, blood_pressure_systolic,",
-        "heart_rate, norepinephrine_rate, arterial_ph,",
+        "heart_rate, noradrenaline_rate, arterial_ph,",
         "arterial_oxygen_pressure,",
         "arterial_carbon_dioxide_pressure,",
         "ventilator_sensitivity, expiratory_sensitivity, rising_time",
@@ -408,7 +408,7 @@ measurement_labels <- tibble::tibble(
     "blood_pressure_diastolic",
     "blood_pressure_systolic",
     "heart_rate",
-    "norepinephrine_rate",
+    "noradrenaline_rate",
     "ventilator_sensitivity",
     "expiratory_sensitivity",
     "rising_time"
@@ -428,7 +428,7 @@ measurement_labels <- tibble::tibble(
     "Diastolic blood pressure (mmHg)",
     "Systolic blood pressure (mmHg)",
     "Heart rate (bpm)",
-    "Norepinephrine rate (mL/h)",
+    "Noradrenaline rate (mL/h)",
     "Ventilator sensitivity",
     "Expiratory sensitivity",
     "Rising time"
