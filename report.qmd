@@ -496,7 +496,10 @@ physiological_measurements <- physiological_assessments |>
     !is.na(.data$timepoint)
   )
 
-make_physiological_boxplot <- function(data, title) {
+make_physiological_boxplot <- function(
+    data,
+    title,
+    y_limits = NULL) {
   if (nrow(x = data) == 0L) {
     return(
       ggplot2::ggplot() +
@@ -514,8 +517,55 @@ make_physiological_boxplot <- function(data, title) {
     )
   }
 
-  ggplot2::ggplot(
-    data = data,
+  if (is.null(y_limits)) {
+    plot_data <- data
+    scale_data <- NULL
+  } else {
+    limit_table <- tibble::tibble(
+      measurement = names(y_limits),
+      lower = purrr::map_dbl(
+        .x = y_limits,
+        .f = 1L
+      ),
+      upper = purrr::map_dbl(
+        .x = y_limits,
+        .f = 2L
+      )
+    ) |>
+      dplyr::mutate(
+        measurement = factor(
+          x = .data$measurement,
+          levels = levels(data$measurement)
+        )
+      )
+
+    plot_data <- data |>
+      dplyr::left_join(
+        y = limit_table,
+        by = "measurement"
+      ) |>
+      dplyr::filter(
+        is.na(.data$lower) |
+          dplyr::between(
+            x = .data$value,
+            left = .data$lower,
+            right = .data$upper
+          )
+      )
+
+    scale_data <- limit_table |>
+      tidyr::pivot_longer(
+        cols = c("lower", "upper"),
+        names_to = "limit",
+        values_to = "value"
+      ) |>
+      dplyr::mutate(
+        timepoint = data$timepoint[[1L]]
+      )
+  }
+
+  plot <- ggplot2::ggplot(
+    data = plot_data,
     mapping = ggplot2::aes(
       x = .data$timepoint,
       y = .data$value,
@@ -559,6 +609,23 @@ make_physiological_boxplot <- function(data, title) {
       strip.text = ggplot2::element_text(face = "bold"),
       legend.position = "top"
     )
+
+  if (!is.null(scale_data)) {
+    plot <- plot +
+      ggplot2::geom_blank(
+        data = scale_data,
+        mapping = ggplot2::aes(
+          x = .data$timepoint,
+          y = .data$value
+        ),
+        inherit.aes = FALSE
+      ) +
+      ggplot2::scale_y_continuous(
+        expand = c(0, 0)
+      )
+  }
+
+  plot
 }
 
 ventilator_settings_plot <- make_physiological_boxplot(
@@ -574,7 +641,11 @@ oxygenation_plot <- make_physiological_boxplot(
     dplyr::filter(
       .data$group == "Oxygenation and gas exchange"
     ),
-  title = "Oxygenation and gas exchange"
+  title = "Oxygenation and gas exchange",
+  y_limits = list(
+    "Oxygen saturation (%)" = c(0, 100),
+    "Arterial carbon dioxide pressure (mmHg)" = c(0, 60)
+  )
 )
 
 hemodynamics_plot <- make_physiological_boxplot(
