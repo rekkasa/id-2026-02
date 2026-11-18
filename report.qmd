@@ -659,14 +659,6 @@ hemodynamics_plot <- make_physiological_boxplot(
   title = "Hemodynamics"
 )
 
-ventilator_control_plot <- make_physiological_boxplot(
-  data = physiological_measurements |>
-    dplyr::filter(
-      .data$group == "Ventilator control and timing"
-    ),
-  title = "Ventilator control and timing"
-)
-
 sleep_measurement_labels <- tibble::tibble(
   measurement = c(
     "time_in_bed",
@@ -867,16 +859,6 @@ oxygenation_plot
 #| dev: ragg_png
 
 hemodynamics_plot
-```
-
-```{r}
-#| label: fig-ventilator-control-timing
-#| fig-cap: "Ventilator control and timing with and without physiotherapy."
-#| fig-width: 9
-#| fig-height: 6
-#| dev: ragg_png
-
-ventilator_control_plot
 ```
 
 ## Sleep assessments
