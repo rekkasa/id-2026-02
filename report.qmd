@@ -646,7 +646,7 @@ oxygenation_plot <- make_physiological_boxplot(
     ),
   title = "Oxygenation and gas exchange",
   y_limits = list(
-    "Oxygen saturation (%)" = c(75, 100),
+    "Oxygen saturation (%)" = c(90, 110),
     "Arterial carbon dioxide pressure (mmHg)" = c(0, 60)
   )
 )
