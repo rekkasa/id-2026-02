@@ -333,6 +333,134 @@ testthat::test_that(
 )
 
 testthat::test_that(
+  desc = "zero total sleep time clears derived sleep measurements",
+  code = {
+    workbook_path <- fs::file_temp(ext = ".xlsx")
+    database_path <- fs::file_temp(ext = ".duckdb")
+    on.exit(
+      expr = {
+        paths <- c(workbook_path, database_path)
+        existing_paths <- paths[fs::file_exists(path = paths)]
+        if (length(existing_paths) > 0L) {
+          fs::file_delete(path = existing_paths)
+        }
+      },
+      add = TRUE
+    )
+    write_synthetic_workbook(
+      workbook_path = workbook_path,
+      patient_ids = c("1", "2")
+    )
+    overwrite_excel_cell(
+      workbook_path = workbook_path,
+      sheet_name = "sleep data",
+      value = "0h 0m",
+      column_number = 4L,
+      row_number = 3L
+    )
+    overwrite_excel_cell(
+      workbook_path = workbook_path,
+      sheet_name = "sleep data",
+      value = "0h 0m",
+      column_number = 20L,
+      row_number = 3L
+    )
+
+    transform_icu_workbook(
+      input_path = workbook_path,
+      database_path = database_path
+    )
+    connection <- DBI::dbConnect(
+      drv = duckdb::duckdb(),
+      dbdir = database_path,
+      read_only = TRUE
+    )
+    on.exit(
+      expr = DBI::dbDisconnect(conn = connection, shutdown = TRUE),
+      add = TRUE
+    )
+
+    sleep_values <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT "patient_id", "assessment", "time_in_bed",',
+        '"total_sleep_time", "sleep_efficiency",',
+        '"wake_after_sleep_onset", "sleep_latency", "stage_shifts",',
+        '"stage1_duration", "stage1_percent_tst", "stage2_duration",',
+        '"stage2_percent_tst", "slow_wave_sleep_duration",',
+        '"slow_wave_sleep_percent_tst", "rem_sleep_duration",',
+        '"rem_sleep_percent_tst", "arousal_index", "rcsq_score"',
+        'FROM "sleep_assessments"',
+        'ORDER BY "patient_id", "assessment"',
+        sep = " "
+      )
+    )
+    zero_sleep_values <- sleep_values |>
+      dplyr::filter(.data$patient_id == "1")
+    nonzero_sleep_values <- sleep_values |>
+      dplyr::filter(.data$patient_id == "2")
+    zero_total_time_columns <- c(
+      "sleep_latency",
+      "stage_shifts",
+      "stage1_duration",
+      "stage1_percent_tst",
+      "stage2_duration",
+      "stage2_percent_tst",
+      "slow_wave_sleep_duration",
+      "slow_wave_sleep_percent_tst",
+      "rem_sleep_duration",
+      "rem_sleep_percent_tst",
+      "arousal_index"
+    )
+
+    testthat::expect_identical(
+      zero_sleep_values$total_sleep_time,
+      c(0, 0)
+    )
+    testthat::expect_true(all(purrr::map_lgl(
+      .x = zero_sleep_values[zero_total_time_columns],
+      .f = function(values) all(is.na(values))
+    )))
+    testthat::expect_identical(
+      zero_sleep_values$time_in_bed,
+      c(525, 495)
+    )
+    testthat::expect_identical(
+      zero_sleep_values$sleep_efficiency,
+      c(91, 88)
+    )
+    testthat::expect_identical(
+      zero_sleep_values$wake_after_sleep_onset,
+      c(12, 15.5)
+    )
+    testthat::expect_identical(
+      zero_sleep_values$rcsq_score,
+      c("value_34", "value_18")
+    )
+    testthat::expect_identical(
+      nonzero_sleep_values$sleep_latency,
+      c(8, 10)
+    )
+    testthat::expect_identical(
+      nonzero_sleep_values$stage1_duration,
+      c(25, 30)
+    )
+    testthat::expect_identical(
+      nonzero_sleep_values$stage2_duration,
+      c(250, 240)
+    )
+    testthat::expect_identical(
+      nonzero_sleep_values$slow_wave_sleep_duration,
+      c(85, 90)
+    )
+    testthat::expect_identical(
+      nonzero_sleep_values$arousal_index,
+      c(12, 18.5)
+    )
+  }
+)
+
+testthat::test_that(
   desc = "the transformer rejects malformed sleep durations",
   code = {
     workbook_path <- fs::file_temp(ext = ".xlsx")

@@ -406,6 +406,20 @@ sleep_numeric_column_names <- c(
   "arousal_index"
 )
 
+sleep_zero_total_time_na_column_names <- c(
+  "sleep_latency",
+  "stage_shifts",
+  "stage1_duration",
+  "stage1_percent_tst",
+  "stage2_duration",
+  "stage2_percent_tst",
+  "slow_wave_sleep_duration",
+  "slow_wave_sleep_percent_tst",
+  "rem_sleep_duration",
+  "rem_sleep_percent_tst",
+  "arousal_index"
+)
+
 patient_clinical_status_numeric_column_names <- c(
   "hand_grip_strength_right",
   "hand_grip_strength_left"
@@ -2239,6 +2253,25 @@ build_sleep_rows <- function(rows, assessment, column_map) {
   )
 }
 
+set_zero_total_sleep_metrics_missing <- function(sleep_assessments) {
+  zero_total_sleep_time <- !is.na(sleep_assessments$total_sleep_time) &
+    sleep_assessments$total_sleep_time == 0
+
+  sleep_assessments |>
+    dplyr::mutate(
+      dplyr::across(
+        .cols = dplyr::all_of(sleep_zero_total_time_na_column_names),
+        .fns = function(values) {
+          dplyr::if_else(
+            condition = zero_total_sleep_time,
+            true = values[NA_integer_],
+            false = values
+          )
+        }
+      )
+    )
+}
+
 build_sleep_assessments <- function(
     sleep_rows,
     patient_index,
@@ -2272,7 +2305,7 @@ build_sleep_assessments <- function(
   with_map <- stringr::str_c("with_", sleep_measurements)
   names(with_map) <- names(sleep_measurements)
 
-  dplyr::bind_rows(
+  sleep_assessments <- dplyr::bind_rows(
     build_sleep_rows(
       rows = sleep_linked,
       assessment = "with_physiotherapy",
@@ -2288,6 +2321,10 @@ build_sleep_assessments <- function(
       assessment_id = as.integer(dplyr::row_number()),
       .before = 1L
     )
+
+  set_zero_total_sleep_metrics_missing(
+    sleep_assessments = sleep_assessments
+  )
 }
 
 assert_session_pairing <- function(study_sessions) {
