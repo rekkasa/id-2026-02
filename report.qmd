@@ -737,6 +737,116 @@ sleep_measurements <- sleep_assessments |>
     !is.na(.data$assessment)
   )
 
+build_sleep_pair_measurements <- function(sleep_assessments) {
+  sleep_assessments |>
+    dplyr::select(
+      "patient_id",
+      "assessment",
+      "total_sleep_time",
+      "sleep_latency"
+    ) |>
+    tidyr::pivot_longer(
+      cols = c("total_sleep_time", "sleep_latency"),
+      names_to = "measurement",
+      values_to = "value",
+      values_transform = list(value = as.character)
+    ) |>
+    dplyr::mutate(
+      value = parse_numeric(values = .data$value),
+      assessment = dplyr::recode(
+        .data$assessment,
+        with_physiotherapy = "With physiotherapy",
+        without_physiotherapy = "Without physiotherapy"
+      ),
+      assessment = factor(
+        x = .data$assessment,
+        levels = c("Without physiotherapy", "With physiotherapy")
+      )
+    ) |>
+    dplyr::filter(!is.na(.data$value)) |>
+    dplyr::group_by(.data$patient_id, .data$measurement) |>
+    dplyr::filter(dplyr::n() == 2L) |>
+    dplyr::ungroup()
+}
+
+make_sleep_pair_plot <- function(data, title, y_label) {
+  if (nrow(x = data) == 0L) {
+    return(
+      ggplot2::ggplot() +
+        ggplot2::annotate(
+          geom = "text",
+          x = 1,
+          y = 1,
+          label = "No complete patient pairs available"
+        ) +
+        ggplot2::labs(
+          title = title,
+          subtitle = "This measurement was not available for both assessments.",
+          x = NULL,
+          y = y_label
+        ) +
+        ggplot2::theme_void()
+    )
+  }
+
+  ggplot2::ggplot(
+    data = data,
+    mapping = ggplot2::aes(
+      x = .data$assessment,
+      y = .data$value,
+      group = .data$patient_id
+    )
+  ) +
+    ggplot2::geom_line(
+      color = "#A6A6A6",
+      alpha = 0.65,
+      linewidth = 0.6
+    ) +
+    ggplot2::geom_point(
+      mapping = ggplot2::aes(color = .data$assessment),
+      shape = 16,
+      size = 2.4
+    ) +
+    ggplot2::scale_color_manual(
+      values = c(
+        "Without physiotherapy" = "#70AD47",
+        "With physiotherapy" = "#4472C4"
+      ),
+      name = "Assessment"
+    ) +
+    ggplot2::scale_x_discrete(
+      limits = c("Without physiotherapy", "With physiotherapy")
+    ) +
+    ggplot2::labs(
+      title = title,
+      subtitle = "Complete within-patient pairs; without physiotherapy first.",
+      x = NULL,
+      y = y_label
+    ) +
+    ggplot2::theme_minimal(base_size = 10) +
+    ggplot2::theme(
+      legend.position = "top"
+    )
+}
+
+sleep_pair_measurements <- build_sleep_pair_measurements(
+  sleep_assessments = sleep_assessments
+)
+
+sleep_total_time_pair_plot <- make_sleep_pair_plot(
+  data = sleep_pair_measurements |>
+    dplyr::filter(.data$measurement == "total_sleep_time"),
+  title = "Total sleep time by patient",
+  y_label = "Total sleep time (min)"
+)
+
+sleep_latency_pair_plot <- make_sleep_pair_plot(
+  data = sleep_pair_measurements |>
+    dplyr::filter(.data$measurement == "sleep_latency"),
+  title = "Sleep latency by patient",
+  y_label = "Sleep latency (min)"
+)
+
 make_sleep_boxplot <- function(data, title) {
   if (nrow(x = data) == 0L) {
     return(
@@ -871,6 +981,26 @@ hemodynamics_plot
 #| dev: ragg_png
 
 sleep_timing_plot
+```
+
+```{r}
+#| label: fig-sleep-total-time-paired
+#| fig-cap: "Patient-level total sleep time without and with physiotherapy."
+#| fig-width: 8
+#| fig-height: 5
+#| dev: ragg_png
+
+sleep_total_time_pair_plot
+```
+
+```{r}
+#| label: fig-sleep-latency-paired
+#| fig-cap: "Patient-level sleep latency without and with physiotherapy."
+#| fig-width: 8
+#| fig-height: 5
+#| dev: ragg_png
+
+sleep_latency_pair_plot
 ```
 
 ```{r}
