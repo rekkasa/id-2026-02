@@ -133,10 +133,10 @@ write_synthetic_workbook <- function(
       crf_row[[8L]] <- eama_references[[index]]
       crf_row[[9L]] <- admission_dates[[index]]
       crf_row[[10L]] <- admission_times[[index]]
-      crf_row[[12L]] <- admission_types[[index]]
-      crf_row[[22L]] <- mechanical_ventilation_start_dates[[index]]
-      crf_row[[23L]] <- mechanical_ventilation_start_times[[index]]
-      crf_row[[27L]] <- icu_discharge_dates[[index]]
+      crf_row[[21L]] <- mechanical_ventilation_start_dates[[index]]
+      crf_row[[22L]] <- mechanical_ventilation_start_times[[index]]
+      crf_row[[26L]] <- icu_discharge_dates[[index]]
+      crf_row[[29L]] <- admission_types[[index]]
       write_excel_row(
         workbook = workbook,
         sheet_name = layout$crf$sheet_name,

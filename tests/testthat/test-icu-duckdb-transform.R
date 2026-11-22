@@ -1225,14 +1225,14 @@ testthat::test_that(
       workbook_path = workbook_path,
       sheet_name = "crf data",
       value = ventilation_serial + 0.5,
-      column_number = 22L,
+      column_number = 21L,
       row_number = 2L
     )
     overwrite_excel_cell(
       workbook_path = workbook_path,
       sheet_name = "crf data",
       value = discharge_date,
-      column_number = 27L,
+      column_number = 26L,
       row_number = 2L
     )
     overwrite_excel_cell(
@@ -1246,7 +1246,7 @@ testthat::test_that(
       workbook_path = workbook_path,
       sheet_name = "crf data",
       value = "23:15",
-      column_number = 23L,
+      column_number = 22L,
       row_number = 2L
     )
     overwrite_excel_cell(

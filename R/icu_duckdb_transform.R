@@ -31,7 +31,6 @@ workbook_layout <- function() {
         "Ημερομηνία εισαγωγής",
         "Ώρα",
         "Αιτία εισόδου",
-        "ΤΥΠΟΣ ΕΙΣΑΓΩΓΗΣ",
         "ΧΑΠ",
         "Περιοριστική πνευμονοπάθεια",
         "Νευρομυική νόσος",
@@ -48,7 +47,8 @@ workbook_layout <- function() {
         "Ημέρες παραμονής στη ΜΕΘ",
         "Ημερομηνία εξόδου από τη ΜΕΘ",
         "Έκβαση ασθενούς ΜΕΘ",
-        "Ενδονοσοκομειακή έκβαση"
+        "Ενδονοσοκομειακή έκβαση",
+        "ΤΥΠΟΣ ΕΙΣΑΓΩΓΗΣ"
       ),
       group_headers = NULL,
       internal_names = c(
@@ -62,7 +62,6 @@ workbook_layout <- function() {
         "admission_date",
         "admission_time",
         "admission_reason",
-        "admission_type",
         "copd",
         "restrictive_lung_disease",
         "neuromuscular_disease",
@@ -79,7 +78,8 @@ workbook_layout <- function() {
         "icu_stay_days",
         "icu_discharge_date",
         "icu_outcome",
-        "hospital_outcome"
+        "hospital_outcome",
+        "admission_type"
       )
     ),
     physiotherapy = list(
