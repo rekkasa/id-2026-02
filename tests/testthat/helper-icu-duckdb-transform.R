@@ -53,6 +53,7 @@ write_synthetic_workbook <- function(
     physiotherapy_patient_ids = patient_ids,
     admission_dates = "01/01/2026",
     admission_times = "14:30",
+    admission_types = "MEDICAL",
     mechanical_ventilation_start_dates = "02/01/2026",
     mechanical_ventilation_start_times = "15:45",
     icu_discharge_dates = "03/01/2026",
@@ -104,6 +105,7 @@ write_synthetic_workbook <- function(
   )
   admission_dates <- rep(x = admission_dates, length.out = length(patient_ids))
   admission_times <- rep(x = admission_times, length.out = length(patient_ids))
+  admission_types <- rep(x = admission_types, length.out = length(patient_ids))
   mechanical_ventilation_start_dates <- rep(
     x = mechanical_ventilation_start_dates,
     length.out = length(patient_ids)
@@ -131,9 +133,10 @@ write_synthetic_workbook <- function(
       crf_row[[8L]] <- eama_references[[index]]
       crf_row[[9L]] <- admission_dates[[index]]
       crf_row[[10L]] <- admission_times[[index]]
-      crf_row[[21L]] <- mechanical_ventilation_start_dates[[index]]
-      crf_row[[22L]] <- mechanical_ventilation_start_times[[index]]
-      crf_row[[26L]] <- icu_discharge_dates[[index]]
+      crf_row[[12L]] <- admission_types[[index]]
+      crf_row[[22L]] <- mechanical_ventilation_start_dates[[index]]
+      crf_row[[23L]] <- mechanical_ventilation_start_times[[index]]
+      crf_row[[27L]] <- icu_discharge_dates[[index]]
       write_excel_row(
         workbook = workbook,
         sheet_name = layout$crf$sheet_name,

@@ -16,7 +16,7 @@ workbook_layout <- function() {
   list(
     crf = list(
       sheet_name = "crf data",
-      column_count = 28L,
+      column_count = 29L,
       header_row = 1L,
       first_data_row = 2L,
       leaf_headers = c(
@@ -31,6 +31,7 @@ workbook_layout <- function() {
         "Ημερομηνία εισαγωγής",
         "Ώρα",
         "Αιτία εισόδου",
+        "ΤΥΠΟΣ ΕΙΣΑΓΩΓΗΣ",
         "ΧΑΠ",
         "Περιοριστική πνευμονοπάθεια",
         "Νευρομυική νόσος",
@@ -61,6 +62,7 @@ workbook_layout <- function() {
         "admission_date",
         "admission_time",
         "admission_reason",
+        "admission_type",
         "copd",
         "restrictive_lung_disease",
         "neuromuscular_disease",
@@ -447,6 +449,7 @@ database_column_names <- list(
     admission_date = "admission_date",
     admission_time = "admission_time",
     admission_reason = "admission_reason",
+    admission_type = "admission_type",
     mechanical_ventilation_start_date = "mechanical_ventilation_start_date",
     mechanical_ventilation_start_time = "mechanical_ventilation_start_time",
     mechanical_ventilation_indication = "mechanical_ventilation_indication",
@@ -1932,6 +1935,7 @@ build_crf_tables <- function(crf_rows, diagnostic_log_path = NULL) {
       admission_date = .data$admission_date,
       admission_time = .data$admission_time,
       admission_reason = .data$admission_reason,
+      admission_type = .data$admission_type,
       mechanical_ventilation_start_date =
         .data$mechanical_ventilation_start_date,
       mechanical_ventilation_start_time =
@@ -2580,6 +2584,7 @@ create_duckdb_schema <- function(connection) {
       "admission_date" DATE,
       "admission_time" TIME,
       "admission_reason" VARCHAR,
+      "admission_type" VARCHAR,
       "mechanical_ventilation_start_date" DATE,
       "mechanical_ventilation_start_time" TIME,
       "mechanical_ventilation_indication" VARCHAR,

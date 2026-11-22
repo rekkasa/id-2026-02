@@ -921,6 +921,77 @@ testthat::test_that(
 )
 
 testthat::test_that(
+  desc = "the transformer stores admission types",
+  code = {
+    workbook_path <- fs::file_temp(ext = ".xlsx")
+    database_path <- fs::file_temp(ext = ".duckdb")
+    on.exit(
+      expr = {
+        paths <- c(workbook_path, database_path)
+        existing_paths <- paths[fs::file_exists(path = paths)]
+        if (length(existing_paths) > 0L) {
+          fs::file_delete(path = existing_paths)
+        }
+      },
+      add = TRUE
+    )
+    write_synthetic_workbook(
+      workbook_path = workbook_path,
+      patient_ids = c("1", "2"),
+      admission_types = c("MEDICAL", "SCEDULED MEDICAL")
+    )
+    transform_icu_workbook(
+      input_path = workbook_path,
+      database_path = database_path
+    )
+    connection <- DBI::dbConnect(
+      drv = duckdb::duckdb(),
+      dbdir = database_path,
+      read_only = TRUE
+    )
+    on.exit(
+      expr = DBI::dbDisconnect(conn = connection, shutdown = TRUE),
+      add = TRUE
+    )
+
+    admission_columns <- DBI::dbListFields(
+      conn = connection,
+      name = "icu_admissions"
+    )
+    admission_values <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT "patient_id", "admission_type"',
+        'FROM "icu_admissions" ORDER BY "patient_id"',
+        sep = " "
+      )
+    )
+    admission_type_types <- DBI::dbGetQuery(
+      conn = connection,
+      statement = stringr::str_c(
+        'SELECT typeof("admission_type") AS "admission_type_type"',
+        'FROM "icu_admissions" LIMIT 1',
+        sep = " "
+      )
+    )
+
+    testthat::expect_true("admission_type" %in% admission_columns)
+    testthat::expect_identical(
+      admission_values$patient_id,
+      c("1", "2")
+    )
+    testthat::expect_identical(
+      admission_values$admission_type,
+      c("MEDICAL", "SCEDULED MEDICAL")
+    )
+    testthat::expect_identical(
+      admission_type_types$admission_type_type,
+      "VARCHAR"
+    )
+  }
+)
+
+testthat::test_that(
   desc = "the transformer permits duplicate EAMA references",
   code = {
     workbook_path <- fs::file_temp(ext = ".xlsx")
@@ -1149,14 +1220,14 @@ testthat::test_that(
       workbook_path = workbook_path,
       sheet_name = "crf data",
       value = ventilation_serial + 0.5,
-      column_number = 21L,
+      column_number = 22L,
       row_number = 2L
     )
     overwrite_excel_cell(
       workbook_path = workbook_path,
       sheet_name = "crf data",
       value = discharge_date,
-      column_number = 26L,
+      column_number = 27L,
       row_number = 2L
     )
     overwrite_excel_cell(
@@ -1170,7 +1241,7 @@ testthat::test_that(
       workbook_path = workbook_path,
       sheet_name = "crf data",
       value = "23:15",
-      column_number = 22L,
+      column_number = 23L,
       row_number = 2L
     )
     overwrite_excel_cell(
