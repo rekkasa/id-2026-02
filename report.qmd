@@ -499,6 +499,36 @@ physiological_measurements <- physiological_assessments |>
     !is.na(.data$timepoint)
   )
 
+build_physiotherapy_pair_measurements <- function(
+    physiological_measurements) {
+  physiological_measurements |>
+    dplyr::filter(
+      .data$assessment == "With physiotherapy",
+      .data$phase %in% c(
+        "before_physiotherapy",
+        "after_physiotherapy"
+      ),
+      .data$measurement %in% c(
+        "Heart rate (bpm)",
+        "Respiratory rate (/min)"
+      )
+    ) |>
+    dplyr::mutate(
+      comparison = dplyr::recode(
+        .data$phase,
+        before_physiotherapy = "Before physiotherapy",
+        after_physiotherapy = "After physiotherapy"
+      ),
+      comparison = factor(
+        x = .data$comparison,
+        levels = c("Before physiotherapy", "After physiotherapy")
+      )
+    ) |>
+    dplyr::group_by(.data$patient_id, .data$measurement) |>
+    dplyr::filter(dplyr::n() == 2L) |>
+    dplyr::ungroup()
+}
+
 make_physiological_boxplot <- function(
     data,
     title,
@@ -753,13 +783,13 @@ build_sleep_pair_measurements <- function(sleep_assessments) {
     ) |>
     dplyr::mutate(
       value = parse_numeric(values = .data$value),
-      assessment = dplyr::recode(
+      comparison = dplyr::recode(
         .data$assessment,
         with_physiotherapy = "With physiotherapy",
         without_physiotherapy = "Without physiotherapy"
       ),
-      assessment = factor(
-        x = .data$assessment,
+      comparison = factor(
+        x = .data$comparison,
         levels = c("Without physiotherapy", "With physiotherapy")
       )
     ) |>
@@ -769,7 +799,15 @@ build_sleep_pair_measurements <- function(sleep_assessments) {
     dplyr::ungroup()
 }
 
-make_sleep_pair_plot <- function(data, title, y_label) {
+make_paired_measurement_plot <- function(
+    data,
+    title,
+    y_label,
+    subtitle,
+    x_levels,
+    comparison_colors,
+    legend_title,
+    facet = FALSE) {
   if (nrow(x = data) == 0L) {
     return(
       ggplot2::ggplot() +
@@ -781,7 +819,7 @@ make_sleep_pair_plot <- function(data, title, y_label) {
         ) +
         ggplot2::labs(
           title = title,
-          subtitle = "This measurement was not available for both assessments.",
+          subtitle = subtitle,
           x = NULL,
           y = y_label
         ) +
@@ -789,10 +827,10 @@ make_sleep_pair_plot <- function(data, title, y_label) {
     )
   }
 
-  ggplot2::ggplot(
+  plot <- ggplot2::ggplot(
     data = data,
     mapping = ggplot2::aes(
-      x = .data$assessment,
+      x = .data$comparison,
       y = .data$value,
       group = .data$patient_id
     )
@@ -803,23 +841,20 @@ make_sleep_pair_plot <- function(data, title, y_label) {
       linewidth = 0.6
     ) +
     ggplot2::geom_point(
-      mapping = ggplot2::aes(color = .data$assessment),
+      mapping = ggplot2::aes(color = .data$comparison),
       shape = 16,
       size = 2.4
     ) +
     ggplot2::scale_color_manual(
-      values = c(
-        "Without physiotherapy" = "#70AD47",
-        "With physiotherapy" = "#4472C4"
-      ),
-      name = "Assessment"
+      values = comparison_colors,
+      name = legend_title
     ) +
     ggplot2::scale_x_discrete(
-      limits = c("Without physiotherapy", "With physiotherapy")
+      limits = x_levels
     ) +
     ggplot2::labs(
       title = title,
-      subtitle = "Complete within-patient pairs; without physiotherapy first.",
+      subtitle = subtitle,
       x = NULL,
       y = y_label
     ) +
@@ -827,24 +862,74 @@ make_sleep_pair_plot <- function(data, title, y_label) {
     ggplot2::theme(
       legend.position = "top"
     )
+
+  if (facet) {
+    plot <- plot +
+      ggplot2::facet_wrap(
+        facets = ggplot2::vars(measurement),
+        scales = "free_y",
+        ncol = 2
+      ) +
+      ggplot2::theme(
+        strip.text = ggplot2::element_text(face = "bold")
+      )
+  }
+
+  plot
 }
 
 sleep_pair_measurements <- build_sleep_pair_measurements(
   sleep_assessments = sleep_assessments
 )
 
-sleep_total_time_pair_plot <- make_sleep_pair_plot(
+physiotherapy_vital_sign_pair_measurements <-
+  build_physiotherapy_pair_measurements(
+    physiological_measurements = physiological_measurements
+  )
+
+sleep_total_time_pair_plot <- make_paired_measurement_plot(
   data = sleep_pair_measurements |>
     dplyr::filter(.data$measurement == "total_sleep_time"),
   title = "Total sleep time by patient",
-  y_label = "Total sleep time (min)"
+  y_label = "Total sleep time (min)",
+  subtitle = "Complete within-patient pairs; without physiotherapy first.",
+  x_levels = c("Without physiotherapy", "With physiotherapy"),
+  comparison_colors = c(
+    "Without physiotherapy" = "#70AD47",
+    "With physiotherapy" = "#4472C4"
+  ),
+  legend_title = "Assessment"
 )
 
-sleep_latency_pair_plot <- make_sleep_pair_plot(
+sleep_latency_pair_plot <- make_paired_measurement_plot(
   data = sleep_pair_measurements |>
     dplyr::filter(.data$measurement == "sleep_latency"),
   title = "Sleep latency by patient",
-  y_label = "Sleep latency (min)"
+  y_label = "Sleep latency (min)",
+  subtitle = "Complete within-patient pairs; without physiotherapy first.",
+  x_levels = c("Without physiotherapy", "With physiotherapy"),
+  comparison_colors = c(
+    "Without physiotherapy" = "#70AD47",
+    "With physiotherapy" = "#4472C4"
+  ),
+  legend_title = "Assessment"
+)
+
+physiotherapy_vital_sign_pair_plot <- make_paired_measurement_plot(
+  data = physiotherapy_vital_sign_pair_measurements,
+  title = paste(
+    "Heart rate and respiratory rate before and after",
+    "physiotherapy"
+  ),
+  y_label = NULL,
+  subtitle = "Complete within-patient pairs; before physiotherapy first.",
+  x_levels = c("Before physiotherapy", "After physiotherapy"),
+  comparison_colors = c(
+    "Before physiotherapy" = "#70AD47",
+    "After physiotherapy" = "#4472C4"
+  ),
+  legend_title = "Phase",
+  facet = TRUE
 )
 
 make_sleep_boxplot <- function(data, title) {
@@ -969,6 +1054,16 @@ oxygenation_plot
 #| dev: ragg_png
 
 hemodynamics_plot
+```
+
+```{r}
+#| label: fig-physiotherapy-vital-signs-paired
+#| fig-cap: "Heart rate and respiratory rate before and after physiotherapy."
+#| fig-width: 10
+#| fig-height: 6
+#| dev: ragg_png
+
+physiotherapy_vital_sign_pair_plot
 ```
 
 ## Sleep assessments
