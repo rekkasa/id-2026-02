@@ -401,6 +401,7 @@ testthat::test_that(
       dplyr::filter(.data$patient_id == "2")
     zero_total_time_columns <- c(
       "sleep_latency",
+      "wake_after_sleep_onset",
       "stage_shifts",
       "stage1_duration",
       "stage1_percent_tst",
@@ -431,7 +432,7 @@ testthat::test_that(
     )
     testthat::expect_identical(
       zero_sleep_values$wake_after_sleep_onset,
-      c(12, 15.5)
+      c(NA_real_, NA_real_)
     )
     testthat::expect_identical(
       zero_sleep_values$rcsq_score,
@@ -440,6 +441,10 @@ testthat::test_that(
     testthat::expect_identical(
       nonzero_sleep_values$sleep_latency,
       c(8, 10)
+    )
+    testthat::expect_identical(
+      nonzero_sleep_values$wake_after_sleep_onset,
+      c(12, 15.5)
     )
     testthat::expect_identical(
       nonzero_sleep_values$stage1_duration,

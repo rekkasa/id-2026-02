@@ -410,6 +410,7 @@ sleep_numeric_column_names <- c(
 
 sleep_zero_total_time_na_column_names <- c(
   "sleep_latency",
+  "wake_after_sleep_onset",
   "stage_shifts",
   "stage1_duration",
   "stage1_percent_tst",
