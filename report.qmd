@@ -1405,6 +1405,71 @@ sleep_test_data <- sleep_assessments |>
     names_glue = "{.value}_{assessment}"
   )
 
+sleep_descriptive_statistics <- sleep_assessments |>
+  dplyr::select(
+    "assessment",
+    dplyr::all_of(names(sleep_test_labels))
+  ) |>
+  dplyr::mutate(
+    dplyr::across(
+      .cols = dplyr::all_of(names(sleep_test_labels)),
+      .fns = parse_numeric
+    )
+  ) |>
+  dplyr::filter(
+    !is.na(.data$total_sleep_time),
+    .data$total_sleep_time > 0
+  ) |>
+  tidyr::pivot_longer(
+    cols = dplyr::all_of(names(sleep_test_labels)),
+    names_to = "measurement",
+    values_to = "value"
+  ) |>
+  dplyr::group_by(.data$assessment, .data$measurement) |>
+  dplyr::group_modify(
+    .f = function(
+      data,
+      group
+    ) {
+      summarise_continuous(
+        label = unname(sleep_test_labels[[group$measurement]]),
+        values = data$value
+      )
+    }
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::mutate(
+    assessment = dplyr::recode(
+      .data$assessment,
+      with_physiotherapy = "With physiotherapy",
+      without_physiotherapy = "Without physiotherapy"
+    ),
+    assessment = factor(
+      x = .data$assessment,
+      levels = c("Without physiotherapy", "With physiotherapy")
+    ),
+    variable = factor(
+      x = .data$variable,
+      levels = unname(sleep_test_labels)
+    )
+  ) |>
+  dplyr::arrange(.data$variable) |>
+  dplyr::select(
+    "variable",
+    "assessment",
+    "summary"
+  ) |>
+  tidyr::pivot_wider(
+    id_cols = "variable",
+    names_from = "assessment",
+    values_from = "summary"
+  ) |>
+  dplyr::select(
+    "variable",
+    "Without physiotherapy",
+    "With physiotherapy"
+  )
+
 sleep_test_results <- purrr::map_dfr(
   .x = names(sleep_test_labels),
   .f = function(measurement) {
@@ -1469,6 +1534,22 @@ sleep_test_results_text <- build_sleep_test_results_text(
 
 knitr::asis_output(
   x = sleep_test_results_text
+)
+```
+
+```{r}
+knitr::kable(
+  x = sleep_descriptive_statistics,
+  format = "pipe",
+  col.names = c(
+    "Sleep measure",
+    "Without physiotherapy",
+    "With physiotherapy"
+  ),
+  caption = stringr::str_c(
+    "Median [Q1, Q3] for total sleep time and sleep latency",
+    "among assessments with total sleep time greater than zero."
+  )
 )
 ```
 
