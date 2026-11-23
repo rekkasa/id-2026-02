@@ -1134,21 +1134,16 @@ sleep_quality_plot
 
 Within-patient differences between assessments with and without
 physiotherapy were evaluated using two-sided paired Wilcoxon signed-rank
-tests for total sleep time, sleep latency, time in bed, sleep efficiency,
-arousal index, RCSQ score, and wake after sleep onset. Only complete pairs
-were analyzed, without imputation. To account for multiple comparisons across
-the seven prespecified sleep outcomes, p-values were adjusted using Holm's
-step-down procedure. Both unadjusted and adjusted p-values are reported.
+tests for total sleep time, sleep latency, and time in bed. Only complete
+pairs were analyzed, without imputation. To account for multiple comparisons
+across the three prespecified sleep outcomes, p-values were adjusted using
+Holm's step-down procedure. Both unadjusted and adjusted p-values are reported.
 
 ```{r}
 sleep_test_labels <- c(
   total_sleep_time = "Total sleep time (min)",
   sleep_latency = "Sleep latency (min)",
-  time_in_bed = "Time in bed (min)",
-  sleep_efficiency = "Sleep efficiency (%)",
-  arousal_index = "Arousal index (/h)",
-  rcsq_score = "RCSQ score",
-  wake_after_sleep_onset = "WASO (min)"
+  time_in_bed = "Time in bed (min)"
 )
 
 sleep_test_data <- sleep_assessments |>
@@ -1236,7 +1231,7 @@ knitr::kable(
     "Holm-adjusted p-value"
   ),
   caption = paste(
-    "Paired Wilcoxon signed-rank tests for seven sleep outcomes",
+    "Paired Wilcoxon signed-rank tests for three sleep outcomes",
     "comparing assessments with and without physiotherapy."
   )
 )
