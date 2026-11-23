@@ -1331,13 +1331,47 @@ sleep_quality_plot
 
 ### Patient characteristics
 
+**Introduction:**  
+Sleep in critically ill patients is frequently characterized by poor quality, fragmentation, and
+alterations in normal sleep architecture, often characterized as atypical, due to the combined impact of
+underlying illness severity, and environmental factors within the Intensive Care Unit (ICU).
+ICU-based sleep promotion efforts include environmental, nonpharmacological, and pharmacological
+interventions. Mobilization and rehabilitation in ICU are widely recognized as safe, feasible and pivotal
+interventions, that have been directly linked to improved post-ICU neuropsychiatric outcomes and more
+effective delirium control. The purpose of the study is the evaluation of the effect of physiotherapy on
+sleep in critical care patients.
+
+**Methods**:  
+This is a randomized crossover physiological study conducted in an adult ICU at a tertiary
+hospital. Polysomnography was performed in critically ill patients two days in a raw, to the same patient,
+the same time, one day right after a physiotherapy session and one day without physiotherapy in a random
+order.
+The patients were hemodynamically stable, with a Glascow Coma Scale Score &gt;14, with no sedation,
+without delirium, and could cooperate with the physiotherapist in order to achieve the maximum exercise
+according to their ability.  
+Within-patient differences between assessments with and without
+physiotherapy were evaluated using two-sided paired Wilcoxon signed-rank
+tests for total sleep time, sleep latency, and time in bed. Only complete
+pairs were analyzed, without imputation. To account for multiple comparisons
+across the three prespecified sleep outcomes, p-values were adjusted using
+Holm's step-down procedure. Both unadjusted and adjusted p-values are reported.
+
+**Results:**  
 A total of `r n_patients` patients were included. The median age was
 `r patient_characteristics_age` years, the median APACHE II score was
 `r patient_characteristics_apache_ii`, median mechanical ventilation duration
 was `r patient_characteristics_mechanical_ventilation` days, and median ICU
 stay was `r patient_characteristics_icu_stay` days. The sex distribution was
 `r patient_characteristics_sex`. Admission types were distributed as follows:
-`r patient_characteristics_admission_types`.
+`r patient_characteristics_admission_types`. 
+Total sleep time was significantly higher in physiotherapy patients (adjusted p-value 0.012). In addition, sleep latency
+was significantly lower in patients with physiotherapy (adjusted p-value XX)
+
+
+**Conclusion:** Critically ill patients demonstrated increased periods of sleep following physiotherapy
+sessions. These findings suggest a potential association between physiotherapy and sleep in ICU,
+highlighting the need for further investigation to better understand this relationship and its clinical
+implications.
 
 ### Sleep assessment comparisons
 
@@ -1351,8 +1385,7 @@ Holm's step-down procedure. Both unadjusted and adjusted p-values are reported.
 ```{r}
 sleep_test_labels <- c(
   total_sleep_time = "Total sleep time (min)",
-  sleep_latency = "Sleep latency (min)",
-  time_in_bed = "Time in bed (min)"
+  sleep_latency = "Sleep latency (min)"
 )
 
 sleep_test_data <- sleep_assessments |>
