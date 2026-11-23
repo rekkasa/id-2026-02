@@ -230,62 +230,6 @@ extract_table_1_summary <- function(table, label) {
   }
 }
 
-build_patient_characteristics_text <- function(
-    table_1,
-    admission_type_counts,
-    n_patients,
-    sex_values) {
-  sex_summary <- summarise_categorical(
-    label = "Sex",
-    values = sex_values,
-    denominator = n_patients
-  ) |>
-    dplyr::pull(var = .data$summary) |>
-    stringr::str_c(collapse = ", ")
-
-  admission_summary <- admission_type_counts |>
-    dplyr::mutate(
-      admission_type = as.character(x = .data$admission_type),
-      summary = stringr::str_c(
-        .data$admission_type,
-        ": ",
-        .data$display
-      )
-    ) |>
-    dplyr::pull(var = .data$summary) |>
-    stringr::str_c(collapse = ", ")
-
-  stringr::str_c(
-    "A total of ",
-    n_patients,
-    " patients were included. The median age was ",
-    extract_table_1_summary(
-      table = table_1,
-      label = "Age (years)"
-    ),
-    " years, the median APACHE II score was ",
-    extract_table_1_summary(
-      table = table_1,
-      label = "APACHE II score"
-    ),
-    ", median mechanical ventilation duration was ",
-    extract_table_1_summary(
-      table = table_1,
-      label = "Mechanical ventilation days"
-    ),
-    " days, and median ICU stay was ",
-    extract_table_1_summary(
-      table = table_1,
-      label = "ICU stay days"
-    ),
-    " days. The sex distribution was ",
-    sex_summary,
-    ". Admission types were distributed as follows: ",
-    admission_summary,
-    "."
-  )
-}
-
 build_sleep_test_results_text <- function(results) {
   sentences <- purrr::pmap_chr(
     .l = list(
@@ -585,12 +529,45 @@ admission_type_plot <- make_admission_type_barplot(
   data = admission_type_counts
 )
 
-patient_characteristics_text <- build_patient_characteristics_text(
-  table_1 = table_1,
-  admission_type_counts = admission_type_counts,
-  n_patients = n_patients,
-  sex_values = icu_admissions$sex
+patient_characteristics_age <- extract_table_1_summary(
+  table = table_1,
+  label = "Age (years)"
 )
+
+patient_characteristics_apache_ii <- extract_table_1_summary(
+  table = table_1,
+  label = "APACHE II score"
+)
+
+patient_characteristics_mechanical_ventilation <- extract_table_1_summary(
+  table = table_1,
+  label = "Mechanical ventilation days"
+)
+
+patient_characteristics_icu_stay <- extract_table_1_summary(
+  table = table_1,
+  label = "ICU stay days"
+)
+
+patient_characteristics_sex <- summarise_categorical(
+  label = "Sex",
+  values = icu_admissions$sex,
+  denominator = n_patients
+) |>
+  dplyr::pull(var = .data$summary) |>
+  stringr::str_c(collapse = ", ")
+
+patient_characteristics_admission_types <- admission_type_counts |>
+  dplyr::mutate(
+    admission_type = as.character(x = .data$admission_type),
+    summary = stringr::str_c(
+      .data$admission_type,
+      ": ",
+      .data$display
+    )
+  ) |>
+  dplyr::pull(var = .data$summary) |>
+  stringr::str_c(collapse = ", ")
 ```
 
 ## Admission types
@@ -1354,13 +1331,13 @@ sleep_quality_plot
 
 ### Patient characteristics
 
-```{r}
-#| results: asis
-
-knitr::asis_output(
-  x = patient_characteristics_text
-)
-```
+A total of `r n_patients` patients were included. The median age was
+`r patient_characteristics_age` years, the median APACHE II score was
+`r patient_characteristics_apache_ii`, median mechanical ventilation duration
+was `r patient_characteristics_mechanical_ventilation` days, and median ICU
+stay was `r patient_characteristics_icu_stay` days. The sex distribution was
+`r patient_characteristics_sex`. Admission types were distributed as follows:
+`r patient_characteristics_admission_types`.
 
 ### Sleep assessment comparisons
 
