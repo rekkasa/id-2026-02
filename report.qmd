@@ -45,7 +45,7 @@ query_result <- tryCatch(
     icu_admissions = DBI::dbGetQuery(
       conn = connection,
       statement = stringr::str_c(
-        "SELECT age_years, sex, apache_ii_score,",
+        "SELECT age_years, sex, admission_type, apache_ii_score,",
         "mechanical_ventilation_days, icu_stay_days,",
         "icu_outcome, hospital_outcome",
         "FROM icu_admissions",
@@ -383,6 +383,102 @@ knitr::kable(
   col.names = c("Patient status", "Descriptive statistics"),
   caption = "Table 2. Patient clinical status."
 )
+```
+
+```{r}
+#| include: false
+
+admission_type_counts <- icu_admissions |>
+  dplyr::mutate(
+    admission_type = stringr::str_squish(
+      string = as.character(x = .data$admission_type)
+    ),
+    admission_type = dplyr::if_else(
+      condition = is.na(x = .data$admission_type) |
+        .data$admission_type == "",
+      true = "Not available",
+      false = .data$admission_type
+    )
+  ) |>
+  dplyr::count(
+    admission_type,
+    name = "count",
+    sort = TRUE
+  ) |>
+  dplyr::mutate(
+    admission_type = factor(
+      x = .data$admission_type,
+      levels = rev(x = as.character(x = .data$admission_type))
+    )
+  )
+
+make_admission_type_barplot <- function(data) {
+  if (nrow(x = data) == 0L) {
+    return(
+      ggplot2::ggplot() +
+        ggplot2::annotate(
+          geom = "text",
+          x = 1,
+          y = 1,
+          label = "No admission type information available"
+        ) +
+        ggplot2::labs(
+          title = "Admission types",
+          subtitle = "No admission type information was available.",
+          x = NULL,
+          y = "Number of patients"
+        ) +
+        ggplot2::theme_void()
+    )
+  }
+
+  ggplot2::ggplot(
+    data = data,
+    mapping = ggplot2::aes(
+      x = .data$admission_type,
+      y = .data$count
+    )
+  ) +
+    ggplot2::geom_col(
+      fill = "#4472C4",
+      width = 0.7
+    ) +
+    ggplot2::geom_text(
+      mapping = ggplot2::aes(label = .data$count),
+      hjust = -0.15,
+      size = 3.5
+    ) +
+    ggplot2::coord_flip(clip = "off") +
+    ggplot2::scale_y_continuous(
+      expand = ggplot2::expansion(mult = c(0, 0.12))
+    ) +
+    ggplot2::labs(
+      title = "Admission types",
+      subtitle = "Number of patients by admission type",
+      x = NULL,
+      y = "Number of patients"
+    ) +
+    ggplot2::theme_minimal(base_size = 10) +
+    ggplot2::theme(
+      legend.position = "none"
+    )
+}
+
+admission_type_plot <- make_admission_type_barplot(
+  data = admission_type_counts
+)
+```
+
+## Admission types
+
+```{r}
+#| label: fig-admission-type
+#| fig-cap: "Admission types among patients."
+#| fig-width: 8
+#| fig-height: 5
+#| dev: ragg_png
+
+admission_type_plot
 ```
 
 ## Physiological assessments
