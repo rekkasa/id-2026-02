@@ -234,25 +234,50 @@ build_sleep_test_results_text <- function(results) {
   sentences <- purrr::pmap_chr(
     .l = list(
       results$variable,
+      results$test,
       results$complete_pairs,
       results$p_value,
-      results$holm_adjusted_p_value
+      results$holm_adjusted_p_value,
+      results$physiotherapy_only,
+      results$without_physiotherapy_only
     ),
     .f = function(
         variable,
+        test,
         complete_pairs,
         p_value,
-        holm_adjusted_p_value) {
-      stringr::str_c(
-        variable,
-        ": ",
-        complete_pairs,
-        " complete pairs; Wilcoxon p = ",
-        format_p_value(value = p_value),
-        "; Holm-adjusted p = ",
-        format_p_value(value = holm_adjusted_p_value),
-        "."
-      )
+        holm_adjusted_p_value,
+        physiotherapy_only,
+        without_physiotherapy_only) {
+      if (identical(x = test, y = "Exact McNemar")) {
+        stringr::str_c(
+          variable,
+          ": ",
+          complete_pairs,
+          " complete pairs; ",
+          physiotherapy_only,
+          " fell asleep only with physiotherapy and ",
+          without_physiotherapy_only,
+          " only without physiotherapy; exact McNemar p = ",
+          format_p_value(value = p_value),
+          "; Holm-adjusted p = ",
+          format_p_value(value = holm_adjusted_p_value),
+          "."
+        )
+      } else {
+        stringr::str_c(
+          variable,
+          ": ",
+          complete_pairs,
+          " complete pairs; ",
+          test,
+          " p = ",
+          format_p_value(value = p_value),
+          "; Holm-adjusted p = ",
+          format_p_value(value = holm_adjusted_p_value),
+          "."
+        )
+      }
     }
   )
 
@@ -1351,10 +1376,13 @@ without delirium, and could cooperate with the physiotherapist in order to achie
 according to their ability.  
 Within-patient differences between assessments with and without
 physiotherapy were evaluated using two-sided paired Wilcoxon signed-rank
-tests for total sleep time, sleep latency, and time in bed. Only complete
-pairs were analyzed, without imputation. To account for multiple comparisons
-across the three prespecified sleep outcomes, p-values were adjusted using
-Holm's step-down procedure. Both unadjusted and adjusted p-values are reported.
+tests for total sleep time, sleep latency, and time in bed. Sleep initiation
+was defined as total sleep time greater than zero and was compared using a
+two-sided exact McNemar test. Sleep latency was analyzed only among patients
+with observed latency in both assessments. Missing values were not imputed.
+To account for multiple comparisons across the four prespecified sleep
+outcomes, p-values were adjusted using Holm's step-down procedure. Both
+unadjusted and adjusted p-values are reported.
 
 **Results:**  
 A total of `r n_patients` patients were included. The median age was
@@ -1364,10 +1392,6 @@ was `r patient_characteristics_mechanical_ventilation` days, and median ICU
 stay was `r patient_characteristics_icu_stay` days. The sex distribution was
 `r patient_characteristics_sex`. Admission types were distributed as follows:
 `r patient_characteristics_admission_types`. 
-Total sleep time was significantly higher in physiotherapy patients (adjusted p-value 0.012). In addition, sleep latency
-was significantly lower in patients with physiotherapy (adjusted p-value XX)
-
-
 **Conclusion:** Critically ill patients demonstrated increased periods of sleep following physiotherapy
 sessions. These findings suggest a potential association between physiotherapy and sleep in ICU,
 highlighting the need for further investigation to better understand this relationship and its clinical
@@ -1377,15 +1401,19 @@ implications.
 
 Within-patient differences between assessments with and without
 physiotherapy were evaluated using two-sided paired Wilcoxon signed-rank
-tests for total sleep time, sleep latency, and time in bed. Only complete
-pairs were analyzed, without imputation. To account for multiple comparisons
-across the three prespecified sleep outcomes, p-values were adjusted using
-Holm's step-down procedure. Both unadjusted and adjusted p-values are reported.
+tests for total sleep time, sleep latency, and time in bed. Sleep initiation
+was defined as total sleep time greater than zero and was compared using a
+two-sided exact McNemar test. Sleep latency was analyzed only among patients
+with observed latency in both assessments. Missing values were not imputed.
+To account for multiple comparisons across the four prespecified sleep
+outcomes, p-values were adjusted using Holm's step-down procedure. Both
+unadjusted and adjusted p-values are reported.
 
 ```{r}
 sleep_test_labels <- c(
   total_sleep_time = "Total sleep time (min)",
-  sleep_latency = "Sleep latency (min)"
+  sleep_latency = "Sleep latency (min)",
+  time_in_bed = "Time in bed (min)"
 )
 
 sleep_test_data <- sleep_assessments |>
@@ -1437,10 +1465,88 @@ sleep_test_results <- purrr::map_dfr(
 
     tibble::tibble(
       variable = unname(sleep_test_labels[[measurement]]),
+      test = "Paired Wilcoxon",
       complete_pairs = nrow(x = complete_pairs),
-      p_value = p_value
+      p_value = p_value,
+      physiotherapy_only = NA_integer_,
+      without_physiotherapy_only = NA_integer_
     )
   }
+)
+
+sleep_initiation_data <- sleep_assessments |>
+  dplyr::select(
+    "patient_id",
+    "assessment",
+    "total_sleep_time"
+  ) |>
+  dplyr::mutate(
+    total_sleep_time = parse_numeric(
+      values = .data$total_sleep_time
+    ),
+    fell_asleep = dplyr::case_when(
+      !is.na(x = .data$total_sleep_time) &
+        .data$total_sleep_time > 0 ~ TRUE,
+      !is.na(x = .data$total_sleep_time) &
+        .data$total_sleep_time == 0 ~ FALSE,
+      TRUE ~ NA
+    )
+  ) |>
+  dplyr::select(
+    "patient_id",
+    "assessment",
+    "fell_asleep"
+  ) |>
+  tidyr::pivot_wider(
+    id_cols = "patient_id",
+    names_from = "assessment",
+    values_from = "fell_asleep",
+    names_glue = "fell_asleep_{assessment}"
+  )
+
+sleep_initiation_pairs <- sleep_initiation_data |>
+  dplyr::filter(
+    !is.na(.data$fell_asleep_with_physiotherapy),
+    !is.na(.data$fell_asleep_without_physiotherapy)
+  )
+
+physiotherapy_only <- sum(
+  x = sleep_initiation_pairs$fell_asleep_with_physiotherapy &
+    !sleep_initiation_pairs$fell_asleep_without_physiotherapy
+)
+
+without_physiotherapy_only <- sum(
+  x = !sleep_initiation_pairs$fell_asleep_with_physiotherapy &
+    sleep_initiation_pairs$fell_asleep_without_physiotherapy
+)
+
+discordant_pairs <- physiotherapy_only + without_physiotherapy_only
+
+sleep_initiation_p_value <- if (nrow(x = sleep_initiation_pairs) == 0L) {
+  NA_real_
+} else if (discordant_pairs == 0L) {
+  1
+} else {
+  stats::binom.test(
+    x = physiotherapy_only,
+    n = discordant_pairs,
+    p = 0.5,
+    alternative = "two.sided"
+  )$p.value
+}
+
+sleep_initiation_result <- tibble::tibble(
+  variable = "Sleep initiation success",
+  test = "Exact McNemar",
+  complete_pairs = nrow(x = sleep_initiation_pairs),
+  p_value = sleep_initiation_p_value,
+  physiotherapy_only = physiotherapy_only,
+  without_physiotherapy_only = without_physiotherapy_only
+)
+
+sleep_test_results <- dplyr::bind_rows(
+  sleep_test_results,
+  sleep_initiation_result
 ) |>
   dplyr::mutate(
     holm_adjusted_p_value = stats::p.adjust(
@@ -1450,7 +1556,10 @@ sleep_test_results <- purrr::map_dfr(
   )
 
 sleep_test_results_display <- sleep_test_results |>
-  dplyr::mutate(
+  dplyr::transmute(
+    variable = .data$variable,
+    test = .data$test,
+    complete_pairs = .data$complete_pairs,
     p_value = purrr::map_chr(
       .x = .data$p_value,
       .f = format_p_value
@@ -1479,13 +1588,14 @@ knitr::kable(
   x = sleep_test_results_display,
   format = "pipe",
   col.names = c(
-    "Sleep measure",
+    "Sleep outcome",
+    "Statistical test",
     "Complete pairs",
-    "Wilcoxon p-value",
+    "P-value",
     "Holm-adjusted p-value"
   ),
   caption = paste(
-    "Paired Wilcoxon signed-rank tests for three sleep outcomes",
+    "Paired tests for four prespecified sleep outcomes",
     "comparing assessments with and without physiotherapy."
   )
 )
