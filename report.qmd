@@ -45,7 +45,7 @@ query_result <- tryCatch(
     icu_admissions = DBI::dbGetQuery(
       conn = connection,
       statement = stringr::str_c(
-        "SELECT age_years, sex, admission_type, apache_ii_score,",
+        "SELECT patient_id, age_years, sex, admission_type, apache_ii_score,",
         "mechanical_ventilation_days, icu_stay_days,",
         "icu_outcome, hospital_outcome",
         "FROM icu_admissions",
@@ -56,7 +56,7 @@ query_result <- tryCatch(
     patient_clinical_status = DBI::dbGetQuery(
       conn = connection,
       statement = stringr::str_c(
-        "SELECT rass_score, vas_score, cam_icu_result,",
+        "SELECT patient_id, rass_score, vas_score, cam_icu_result,",
         "borg_score, borg_rpe_score,",
         "hand_grip_strength_right, hand_grip_strength_left,",
         "mrc_score, icu_mobility_score",
@@ -115,6 +115,13 @@ icu_admissions <- query_result$icu_admissions
 patient_clinical_status <- query_result$patient_clinical_status
 physiological_assessments <- query_result$physiological_assessments
 sleep_assessments <- query_result$sleep_assessments
+
+report_data <- list(
+  icu_admissions = icu_admissions,
+  patient_clinical_status = patient_clinical_status,
+  physiological_assessments = physiological_assessments,
+  sleep_assessments = sleep_assessments
+)
 ```
 
 ## Table 1
@@ -1567,5 +1574,1192 @@ knitr::kable(
     "Paired Wilcoxon signed-rank tests for two sleep outcomes",
     "comparing assessments with and without physiotherapy."
   )
+)
+```
+
+```{r}
+#| include: false
+
+filter_patient_data <- function(
+    data,
+    excluded_patient_ids = character()) {
+  required_names <- c(
+    "icu_admissions",
+    "patient_clinical_status",
+    "physiological_assessments",
+    "sleep_assessments"
+  )
+  missing_names <- setdiff(
+    x = required_names,
+    y = names(data)
+  )
+
+  if (length(x = missing_names) > 0L) {
+    rlang::abort(
+      message = stringr::str_c(
+        "Analysis data is missing required tables: ",
+        stringr::str_c(missing_names, collapse = ", "),
+        "."
+      )
+    )
+  }
+
+  purrr::map(
+    .x = data[required_names],
+    .f = function(table) {
+      if (!"patient_id" %in% names(table)) {
+        rlang::abort(
+          message = "Every sensitivity-analysis table must contain patient_id."
+        )
+      }
+
+      table |>
+        dplyr::filter(
+          !as.character(x = .data$patient_id) %in% excluded_patient_ids
+        )
+    }
+  )
+}
+
+run_report_analyses <- function(data) {
+  required_names <- c(
+    "icu_admissions",
+    "patient_clinical_status",
+    "physiological_assessments",
+    "sleep_assessments"
+  )
+  missing_names <- setdiff(
+    x = required_names,
+    y = names(data)
+  )
+
+  if (length(x = missing_names) > 0L) {
+    rlang::abort(
+      message = stringr::str_c(
+        "Analysis data is missing required tables: ",
+        stringr::str_c(missing_names, collapse = ", "),
+        "."
+      )
+    )
+  }
+
+  icu_admissions <- data$icu_admissions
+  patient_clinical_status <- data$patient_clinical_status
+  physiological_assessments <- data$physiological_assessments
+  sleep_assessments <- data$sleep_assessments
+
+  n_patients <- nrow(x = icu_admissions)
+
+  table_1 <- dplyr::bind_rows(
+    summarise_continuous(
+      label = "Age (years)",
+      values = icu_admissions$age_years
+    ),
+    summarise_categorical(
+      label = "Sex",
+      values = icu_admissions$sex,
+      denominator = n_patients
+    ),
+    summarise_continuous(
+      label = "APACHE II score",
+      values = icu_admissions$apache_ii_score
+    ),
+    summarise_continuous(
+      label = "Mechanical ventilation days",
+      values = icu_admissions$mechanical_ventilation_days
+    ),
+    summarise_continuous(
+      label = "ICU stay days",
+      values = icu_admissions$icu_stay_days
+    ),
+    summarise_categorical(
+      label = "ICU outcome",
+      values = icu_admissions$icu_outcome,
+      denominator = n_patients
+    ),
+    summarise_categorical(
+      label = "In-hospital outcome",
+      values = icu_admissions$hospital_outcome,
+      denominator = n_patients
+    )
+  )
+
+  table_2 <- dplyr::bind_rows(
+    summarise_continuous(
+      label = "RASS score",
+      values = patient_clinical_status$rass_score
+    ),
+    summarise_continuous(
+      label = "VAS score",
+      values = patient_clinical_status$vas_score
+    ),
+    summarise_continuous(
+      label = "CAM-ICU result",
+      values = patient_clinical_status$cam_icu_result
+    ),
+    summarise_continuous(
+      label = "Borg score",
+      values = patient_clinical_status$borg_score
+    ),
+    summarise_continuous(
+      label = "Borg RPE score",
+      values = patient_clinical_status$borg_rpe_score
+    ),
+    summarise_continuous(
+      label = "Right hand-grip strength",
+      values = patient_clinical_status$hand_grip_strength_right
+    ),
+    summarise_continuous(
+      label = "Left hand-grip strength",
+      values = patient_clinical_status$hand_grip_strength_left
+    ),
+    summarise_continuous(
+      label = "MRC score",
+      values = patient_clinical_status$mrc_score
+    ),
+    summarise_continuous(
+      label = "ICU Mobility score",
+      values = patient_clinical_status$icu_mobility_score
+    )
+  )
+
+  admission_type_counts <- icu_admissions |>
+    dplyr::mutate(
+      admission_type = stringr::str_squish(
+        string = as.character(x = .data$admission_type)
+      ),
+      admission_type = dplyr::if_else(
+        condition = is.na(x = .data$admission_type) |
+          .data$admission_type == "",
+        true = "Not available",
+        false = .data$admission_type
+      )
+    ) |>
+    dplyr::count(
+      admission_type,
+      name = "count",
+      sort = TRUE
+    ) |>
+    dplyr::mutate(
+      display = purrr::map_chr(
+        .x = .data$count,
+        .f = function(count) {
+          format_n_percent(
+            count = count,
+            denominator = n_patients
+          )
+        }
+      ),
+      admission_type = factor(
+        x = .data$admission_type,
+        levels = rev(x = as.character(x = .data$admission_type))
+      )
+    )
+
+  admission_type_plot <- make_admission_type_barplot(
+    data = admission_type_counts
+  )
+
+  patient_characteristics <- list(
+    age = extract_table_1_summary(
+      table = table_1,
+      label = "Age (years)"
+    ),
+    apache_ii = extract_table_1_summary(
+      table = table_1,
+      label = "APACHE II score"
+    ),
+    mechanical_ventilation = extract_table_1_summary(
+      table = table_1,
+      label = "Mechanical ventilation days"
+    ),
+    icu_stay = extract_table_1_summary(
+      table = table_1,
+      label = "ICU stay days"
+    ),
+    sex = summarise_categorical(
+      label = "Sex",
+      values = icu_admissions$sex,
+      denominator = n_patients
+    ) |>
+      dplyr::pull(var = .data$summary) |>
+      stringr::str_c(collapse = ", "),
+    admission_types = admission_type_counts |>
+      dplyr::mutate(
+        admission_type = as.character(x = .data$admission_type),
+        summary = stringr::str_c(
+          .data$admission_type,
+          ": ",
+          .data$display
+        )
+      ) |>
+      dplyr::pull(var = .data$summary) |>
+      stringr::str_c(collapse = ", ")
+  )
+
+  physiological_measurements <- physiological_assessments |>
+    tidyr::pivot_longer(
+      cols = -c("patient_id", "assessment", "phase"),
+      names_to = "measurement",
+      values_to = "value",
+      values_transform = list(value = as.character)
+    ) |>
+    dplyr::left_join(
+      y = measurement_labels,
+      by = "measurement"
+    ) |>
+    dplyr::mutate(
+      value = parse_numeric(values = .data$value),
+      value = dplyr::case_when(
+        .data$measurement == "fraction_inspired_oxygen" &
+          !is.na(.data$value) &
+          .data$value <= 1 ~ .data$value * 100,
+        .data$measurement == "oxygen_saturation" &
+          !is.na(.data$value) &
+          .data$value <= 1 ~ .data$value * 100,
+        TRUE ~ .data$value
+      ),
+      timepoint = dplyr::case_when(
+        .data$assessment == "with_physiotherapy" &
+          .data$phase == "before_physiotherapy" ~ "With physio - before",
+        .data$assessment == "with_physiotherapy" &
+          .data$phase == "after_physiotherapy" ~ "With physio - after",
+        .data$assessment == "without_physiotherapy" &
+          .data$phase == "recording_start" ~ "Without physio - start",
+        .data$assessment == "without_physiotherapy" &
+          .data$phase == "recording_end" ~ "Without physio - end",
+        TRUE ~ NA_character_
+      ),
+      assessment = dplyr::recode(
+        .data$assessment,
+        with_physiotherapy = "With physiotherapy",
+        without_physiotherapy = "Without physiotherapy"
+      ),
+      timepoint = factor(
+        x = .data$timepoint,
+        levels = c(
+          "With physio - before",
+          "With physio - after",
+          "Without physio - start",
+          "Without physio - end"
+        )
+      ),
+      measurement = factor(
+        x = .data$label,
+        levels = measurement_labels$label
+      )
+    ) |>
+    dplyr::filter(
+      !is.na(.data$value),
+      !is.na(.data$label),
+      !is.na(.data$timepoint)
+    )
+
+  ventilator_settings_plot <- make_physiological_boxplot(
+    data = physiological_measurements |>
+      dplyr::filter(.data$group == "Ventilator settings"),
+    title = "Ventilator settings"
+  )
+  oxygenation_plot <- make_physiological_boxplot(
+    data = physiological_measurements |>
+      dplyr::filter(.data$group == "Oxygenation and gas exchange"),
+    title = "Oxygenation and gas exchange",
+    y_limits = list(
+      "Oxygen saturation (%)" = c(90, 110),
+      "Arterial carbon dioxide pressure (mmHg)" = c(0, 60)
+    )
+  )
+  hemodynamics_plot <- make_physiological_boxplot(
+    data = physiological_measurements |>
+      dplyr::filter(.data$group == "Hemodynamics"),
+    title = "Hemodynamics"
+  )
+
+  sleep_measurements <- sleep_assessments |>
+    tidyr::pivot_longer(
+      cols = -c("patient_id", "assessment"),
+      names_to = "measurement",
+      values_to = "value",
+      values_transform = list(value = as.character)
+    ) |>
+    dplyr::left_join(
+      y = sleep_measurement_labels,
+      by = "measurement"
+    ) |>
+    dplyr::mutate(
+      value = parse_numeric(values = .data$value),
+      assessment = dplyr::recode(
+        .data$assessment,
+        with_physiotherapy = "With physiotherapy",
+        without_physiotherapy = "Without physiotherapy"
+      ),
+      assessment = factor(
+        x = .data$assessment,
+        levels = c("With physiotherapy", "Without physiotherapy")
+      ),
+      measurement = factor(
+        x = .data$label,
+        levels = sleep_measurement_labels$label
+      )
+    ) |>
+    dplyr::filter(
+      !is.na(.data$value),
+      !is.na(.data$label),
+      !is.na(.data$assessment)
+    )
+
+  sleep_timing_plot <- make_sleep_boxplot(
+    data = sleep_measurements |>
+      dplyr::filter(.data$group == "Sleep timing"),
+    title = "Sleep timing"
+  )
+  sleep_stage_duration_plot <- make_sleep_boxplot(
+    data = sleep_measurements |>
+      dplyr::filter(.data$group == "Sleep-stage duration"),
+    title = "Sleep-stage duration"
+  )
+  sleep_stage_composition_plot <- make_sleep_boxplot(
+    data = sleep_measurements |>
+      dplyr::filter(.data$group == "Sleep-stage composition"),
+    title = "Sleep-stage composition"
+  )
+  sleep_quality_plot <- make_sleep_boxplot(
+    data = sleep_measurements |>
+      dplyr::filter(.data$group == "Sleep quality and arousal"),
+    title = "Sleep quality and arousal"
+  )
+
+  sleep_pair_measurements <- build_sleep_pair_measurements(
+    sleep_assessments = sleep_assessments
+  )
+  physiotherapy_vital_sign_pair_measurements <-
+    build_physiotherapy_pair_measurements(
+      physiological_measurements = physiological_measurements
+    )
+
+  sleep_total_time_pair_plot <- make_paired_measurement_plot(
+    data = sleep_pair_measurements |>
+      dplyr::filter(.data$measurement == "total_sleep_time"),
+    title = "Total sleep time by patient",
+    y_label = "Total sleep time (min)",
+    subtitle = "Complete within-patient pairs; without physiotherapy first.",
+    x_levels = c("Without physiotherapy", "With physiotherapy"),
+    comparison_colors = c(
+      "Without physiotherapy" = "#70AD47",
+      "With physiotherapy" = "#4472C4"
+    ),
+    legend_title = "Assessment"
+  )
+  sleep_latency_pair_plot <- make_paired_measurement_plot(
+    data = sleep_pair_measurements |>
+      dplyr::filter(.data$measurement == "sleep_latency"),
+    title = "Sleep latency by patient",
+    y_label = "Sleep latency (min)",
+    subtitle = "Complete within-patient pairs; without physiotherapy first.",
+    x_levels = c("Without physiotherapy", "With physiotherapy"),
+    comparison_colors = c(
+      "Without physiotherapy" = "#70AD47",
+      "With physiotherapy" = "#4472C4"
+    ),
+    legend_title = "Assessment"
+  )
+  physiotherapy_vital_sign_pair_plot <- make_paired_measurement_plot(
+    data = physiotherapy_vital_sign_pair_measurements,
+    title = paste(
+      "Heart rate and respiratory rate before and after",
+      "physiotherapy"
+    ),
+    y_label = NULL,
+    subtitle = "Complete within-patient pairs; before physiotherapy first.",
+    x_levels = c("Before physiotherapy", "After physiotherapy"),
+    comparison_colors = c(
+      "Before physiotherapy" = "#70AD47",
+      "After physiotherapy" = "#4472C4"
+    ),
+    legend_title = "Phase",
+    facet = TRUE
+  )
+
+  sleep_test_labels <- c(
+    total_sleep_time = "Total sleep time (min)",
+    sleep_latency = "Sleep latency (min)"
+  )
+  sleep_test_data <- sleep_assessments |>
+    dplyr::select(
+      "patient_id",
+      "assessment",
+      dplyr::all_of(names(sleep_test_labels))
+    ) |>
+    dplyr::mutate(
+      dplyr::across(
+        .cols = dplyr::all_of(names(sleep_test_labels)),
+        .fns = parse_numeric
+      )
+    ) |>
+    tidyr::pivot_wider(
+      id_cols = "patient_id",
+      names_from = "assessment",
+      values_from = dplyr::all_of(names(sleep_test_labels)),
+      names_glue = "{.value}_{assessment}"
+    )
+
+  sleep_descriptive_statistics <- sleep_assessments |>
+    dplyr::select(
+      "assessment",
+      dplyr::all_of(names(sleep_test_labels))
+    ) |>
+    dplyr::mutate(
+      dplyr::across(
+        .cols = dplyr::all_of(names(sleep_test_labels)),
+        .fns = parse_numeric
+      )
+    ) |>
+    dplyr::filter(
+      !is.na(.data$total_sleep_time),
+      .data$total_sleep_time > 0
+    ) |>
+    tidyr::pivot_longer(
+      cols = dplyr::all_of(names(sleep_test_labels)),
+      names_to = "measurement",
+      values_to = "value"
+    ) |>
+    dplyr::group_by(.data$assessment, .data$measurement) |>
+    dplyr::group_modify(
+      .f = function(
+          data,
+          group
+      ) {
+        summarise_continuous(
+          label = unname(sleep_test_labels[[group$measurement]]),
+          values = data$value
+        )
+      }
+    ) |>
+    dplyr::ungroup() |>
+    dplyr::mutate(
+      assessment = dplyr::recode(
+        .data$assessment,
+        with_physiotherapy = "With physiotherapy",
+        without_physiotherapy = "Without physiotherapy"
+      ),
+      assessment = factor(
+        x = .data$assessment,
+        levels = c("Without physiotherapy", "With physiotherapy")
+      ),
+      variable = factor(
+        x = .data$variable,
+        levels = unname(sleep_test_labels)
+      )
+    ) |>
+    dplyr::arrange(.data$variable) |>
+    dplyr::select(
+      "variable",
+      "assessment",
+      "summary"
+    ) |>
+    tidyr::pivot_wider(
+      id_cols = "variable",
+      names_from = "assessment",
+      values_from = "summary"
+    ) |>
+    dplyr::select(
+      "variable",
+      "Without physiotherapy",
+      "With physiotherapy"
+    )
+
+  sleep_test_results <- purrr::map_dfr(
+    .x = names(sleep_test_labels),
+    .f = function(measurement) {
+      with_column <- stringr::str_c(
+        measurement,
+        "_with_physiotherapy"
+      )
+      without_column <- stringr::str_c(
+        measurement,
+        "_without_physiotherapy"
+      )
+      complete_pairs <- sleep_test_data |>
+        dplyr::filter(
+          !is.na(.data[[with_column]]),
+          !is.na(.data[[without_column]])
+        )
+
+      if (nrow(x = complete_pairs) == 0L) {
+        p_value <- NA_real_
+      } else {
+        test_result <- stats::wilcox.test(
+          x = complete_pairs[[with_column]],
+          y = complete_pairs[[without_column]],
+          paired = TRUE
+        )
+        p_value <- test_result$p.value
+      }
+
+      tibble::tibble(
+        variable = unname(sleep_test_labels[[measurement]]),
+        complete_pairs = nrow(x = complete_pairs),
+        p_value = p_value
+      )
+    }
+  ) |>
+    dplyr::mutate(
+      holm_adjusted_p_value = stats::p.adjust(
+        p = .data$p_value,
+        method = "holm"
+      )
+    )
+
+  sleep_test_results_display <- sleep_test_results |>
+    dplyr::mutate(
+      p_value = purrr::map_chr(
+        .x = .data$p_value,
+        .f = format_p_value
+      ),
+      holm_adjusted_p_value = purrr::map_chr(
+        .x = .data$holm_adjusted_p_value,
+        .f = format_p_value
+      )
+    )
+
+  list(
+    n_patients = n_patients,
+    table_1 = table_1,
+    table_2 = table_2,
+    admission_type_counts = admission_type_counts,
+    patient_characteristics = patient_characteristics,
+    physiological_measurements = physiological_measurements,
+    sleep_measurements = sleep_measurements,
+    sleep_pair_measurements = sleep_pair_measurements,
+    physiotherapy_vital_sign_pair_measurements =
+      physiotherapy_vital_sign_pair_measurements,
+    sleep_descriptive_statistics = sleep_descriptive_statistics,
+    sleep_test_data = sleep_test_data,
+    sleep_test_results = sleep_test_results,
+    sleep_test_results_display = sleep_test_results_display,
+    sleep_test_results_text = build_sleep_test_results_text(
+      results = sleep_test_results
+    ),
+    plots = list(
+      admission_type = admission_type_plot,
+      ventilator_settings = ventilator_settings_plot,
+      oxygenation = oxygenation_plot,
+      hemodynamics = hemodynamics_plot,
+      physiotherapy_vital_sign_pairs = physiotherapy_vital_sign_pair_plot,
+      sleep_timing = sleep_timing_plot,
+      sleep_total_time_pairs = sleep_total_time_pair_plot,
+      sleep_latency_pairs = sleep_latency_pair_plot,
+      sleep_stage_duration = sleep_stage_duration_plot,
+      sleep_stage_composition = sleep_stage_composition_plot,
+      sleep_quality = sleep_quality_plot
+    )
+  )
+}
+```
+
+```{r}
+#| include: false
+
+sensitivity_scenarios <- list(
+  retain_patient_2 = list(
+    label = "Patient 2 retained",
+    excluded_patient_ids = "3"
+  ),
+  retain_patient_3 = list(
+    label = "Patient 3 retained",
+    excluded_patient_ids = "2"
+  ),
+  exclude_patients_2_and_3 = list(
+    label = "Patients 2 and 3 excluded",
+    excluded_patient_ids = c("2", "3")
+  )
+)
+
+available_patient_ids <- unique(
+  as.character(x = report_data$icu_admissions$patient_id)
+)
+if (!all(c("2", "3") %in% available_patient_ids)) {
+  rlang::abort(
+    message = "Sensitivity analyses require patient IDs 2 and 3."
+  )
+}
+
+sensitivity_results <- purrr::imap(
+  .x = sensitivity_scenarios,
+  .f = function(scenario, scenario_id) {
+    filtered_data <- filter_patient_data(
+      data = report_data,
+      excluded_patient_ids = scenario$excluded_patient_ids
+    )
+
+    results <- run_report_analyses(data = filtered_data)
+    results$scenario_id <- scenario_id
+    results$scenario_label <- scenario$label
+    results
+  }
+)
+
+sensitivity_retain_2 <- sensitivity_results$retain_patient_2
+sensitivity_retain_3 <- sensitivity_results$retain_patient_3
+sensitivity_exclude_2_and_3 <- sensitivity_results$exclude_patients_2_and_3
+```
+
+## Sensitivity analyses
+
+Patients 2 and 3 represent the same patient measured at different times. The
+analyses below repeat the descriptive summaries, graphical analyses, and
+paired sleep comparisons under three patient-inclusion rules. All other
+patients are retained, missing values are not imputed, and Holm adjustment is
+performed separately within each scenario.
+
+### Patient 2 retained
+
+Patient 2 is retained and patient 3 is excluded from every analysis dataset.
+
+#### Table 1
+
+```{r}
+knitr::kable(
+  x = sensitivity_retain_2$table_1,
+  format = "pipe",
+  escape = FALSE,
+  col.names = c("Characteristic", "Descriptive statistics"),
+  caption = "Sensitivity analysis: descriptive characteristics with patient 2 retained."
+)
+```
+
+#### Table 2
+
+```{r}
+knitr::kable(
+  x = sensitivity_retain_2$table_2,
+  format = "pipe",
+  col.names = c("Patient status", "Descriptive statistics"),
+  caption = "Sensitivity analysis: patient clinical status with patient 2 retained."
+)
+```
+
+#### Admission types
+
+```{r}
+#| label: fig-sensitivity-retain-2-admission-type
+#| fig-cap: "Admission types with patient 2 retained."
+#| fig-width: 8
+#| fig-height: 5
+#| dev: ragg_png
+
+sensitivity_retain_2$plots$admission_type
+```
+
+#### Physiological assessments
+
+```{r}
+#| label: fig-sensitivity-retain-2-ventilator-settings
+#| fig-cap: "Ventilator settings with patient 2 retained."
+#| fig-width: 11
+#| fig-height: 9
+#| dev: ragg_png
+
+sensitivity_retain_2$plots$ventilator_settings
+```
+
+```{r}
+#| label: fig-sensitivity-retain-2-oxygenation
+#| fig-cap: "Oxygenation and gas exchange with patient 2 retained."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_retain_2$plots$oxygenation
+```
+
+```{r}
+#| label: fig-sensitivity-retain-2-hemodynamics
+#| fig-cap: "Hemodynamic measurements with patient 2 retained."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_retain_2$plots$hemodynamics
+```
+
+```{r}
+#| label: fig-sensitivity-retain-2-vital-signs
+#| fig-cap: "Heart rate and respiratory rate before and after physiotherapy with patient 2 retained."
+#| fig-width: 10
+#| fig-height: 6
+#| dev: ragg_png
+
+sensitivity_retain_2$plots$physiotherapy_vital_sign_pairs
+```
+
+#### Sleep assessments
+
+```{r}
+#| label: fig-sensitivity-retain-2-sleep-timing
+#| fig-cap: "Sleep timing with patient 2 retained."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_retain_2$plots$sleep_timing
+```
+
+```{r}
+#| label: fig-sensitivity-retain-2-sleep-total-time
+#| fig-cap: "Patient-level total sleep time with patient 2 retained."
+#| fig-width: 8
+#| fig-height: 5
+#| dev: ragg_png
+
+sensitivity_retain_2$plots$sleep_total_time_pairs
+```
+
+```{r}
+#| label: fig-sensitivity-retain-2-sleep-latency
+#| fig-cap: "Patient-level sleep latency with patient 2 retained."
+#| fig-width: 8
+#| fig-height: 5
+#| dev: ragg_png
+
+sensitivity_retain_2$plots$sleep_latency_pairs
+```
+
+```{r}
+#| label: fig-sensitivity-retain-2-sleep-stage-duration
+#| fig-cap: "Sleep-stage duration with patient 2 retained."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_retain_2$plots$sleep_stage_duration
+```
+
+```{r}
+#| label: fig-sensitivity-retain-2-sleep-stage-composition
+#| fig-cap: "Sleep-stage composition with patient 2 retained."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_retain_2$plots$sleep_stage_composition
+```
+
+```{r}
+#| label: fig-sensitivity-retain-2-sleep-quality
+#| fig-cap: "Sleep quality and arousal with patient 2 retained."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_retain_2$plots$sleep_quality
+```
+
+#### Results
+
+**Patient characteristics:** A total of `r sensitivity_retain_2$n_patients` patients were included. The median age was `r sensitivity_retain_2$patient_characteristics$age` years, the median APACHE II score was `r sensitivity_retain_2$patient_characteristics$apache_ii`, median mechanical ventilation duration was `r sensitivity_retain_2$patient_characteristics$mechanical_ventilation` days, and median ICU stay was `r sensitivity_retain_2$patient_characteristics$icu_stay` days. The sex distribution was `r sensitivity_retain_2$patient_characteristics$sex`. Admission types were distributed as follows: `r sensitivity_retain_2$patient_characteristics$admission_types`.
+
+Within-patient differences between assessments with and without physiotherapy were evaluated using two-sided paired Wilcoxon signed-rank tests for total sleep time and sleep latency. Sleep latency was analyzed only among patients with observed latency in both assessments. Missing values were not imputed. Holm-adjusted p-values were calculated separately for this sensitivity analysis.
+
+```{r}
+#| results: asis
+
+knitr::asis_output(
+  x = sensitivity_retain_2$sleep_test_results_text
+)
+```
+
+```{r}
+knitr::kable(
+  x = sensitivity_retain_2$sleep_descriptive_statistics,
+  format = "pipe",
+  col.names = c(
+    "Sleep measure",
+    "Without physiotherapy",
+    "With physiotherapy"
+  ),
+  caption = "Sensitivity analysis: sleep summaries with patient 2 retained."
+)
+```
+
+```{r}
+knitr::kable(
+  x = sensitivity_retain_2$sleep_test_results_display,
+  format = "pipe",
+  col.names = c(
+    "Sleep measure",
+    "Complete pairs",
+    "Wilcoxon p-value",
+    "Holm-adjusted p-value"
+  ),
+  caption = "Sensitivity analysis: paired sleep tests with patient 2 retained."
+)
+```
+
+### Patient 3 retained
+
+Patient 3 is retained and patient 2 is excluded from every analysis dataset.
+
+#### Table 1
+
+```{r}
+knitr::kable(
+  x = sensitivity_retain_3$table_1,
+  format = "pipe",
+  escape = FALSE,
+  col.names = c("Characteristic", "Descriptive statistics"),
+  caption = "Sensitivity analysis: descriptive characteristics with patient 3 retained."
+)
+```
+
+#### Table 2
+
+```{r}
+knitr::kable(
+  x = sensitivity_retain_3$table_2,
+  format = "pipe",
+  col.names = c("Patient status", "Descriptive statistics"),
+  caption = "Sensitivity analysis: patient clinical status with patient 3 retained."
+)
+```
+
+#### Admission types
+
+```{r}
+#| label: fig-sensitivity-retain-3-admission-type
+#| fig-cap: "Admission types with patient 3 retained."
+#| fig-width: 8
+#| fig-height: 5
+#| dev: ragg_png
+
+sensitivity_retain_3$plots$admission_type
+```
+
+#### Physiological assessments
+
+```{r}
+#| label: fig-sensitivity-retain-3-ventilator-settings
+#| fig-cap: "Ventilator settings with patient 3 retained."
+#| fig-width: 11
+#| fig-height: 9
+#| dev: ragg_png
+
+sensitivity_retain_3$plots$ventilator_settings
+```
+
+```{r}
+#| label: fig-sensitivity-retain-3-oxygenation
+#| fig-cap: "Oxygenation and gas exchange with patient 3 retained."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_retain_3$plots$oxygenation
+```
+
+```{r}
+#| label: fig-sensitivity-retain-3-hemodynamics
+#| fig-cap: "Hemodynamic measurements with patient 3 retained."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_retain_3$plots$hemodynamics
+```
+
+```{r}
+#| label: fig-sensitivity-retain-3-vital-signs
+#| fig-cap: "Heart rate and respiratory rate before and after physiotherapy with patient 3 retained."
+#| fig-width: 10
+#| fig-height: 6
+#| dev: ragg_png
+
+sensitivity_retain_3$plots$physiotherapy_vital_sign_pairs
+```
+
+#### Sleep assessments
+
+```{r}
+#| label: fig-sensitivity-retain-3-sleep-timing
+#| fig-cap: "Sleep timing with patient 3 retained."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_retain_3$plots$sleep_timing
+```
+
+```{r}
+#| label: fig-sensitivity-retain-3-sleep-total-time
+#| fig-cap: "Patient-level total sleep time with patient 3 retained."
+#| fig-width: 8
+#| fig-height: 5
+#| dev: ragg_png
+
+sensitivity_retain_3$plots$sleep_total_time_pairs
+```
+
+```{r}
+#| label: fig-sensitivity-retain-3-sleep-latency
+#| fig-cap: "Patient-level sleep latency with patient 3 retained."
+#| fig-width: 8
+#| fig-height: 5
+#| dev: ragg_png
+
+sensitivity_retain_3$plots$sleep_latency_pairs
+```
+
+```{r}
+#| label: fig-sensitivity-retain-3-sleep-stage-duration
+#| fig-cap: "Sleep-stage duration with patient 3 retained."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_retain_3$plots$sleep_stage_duration
+```
+
+```{r}
+#| label: fig-sensitivity-retain-3-sleep-stage-composition
+#| fig-cap: "Sleep-stage composition with patient 3 retained."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_retain_3$plots$sleep_stage_composition
+```
+
+```{r}
+#| label: fig-sensitivity-retain-3-sleep-quality
+#| fig-cap: "Sleep quality and arousal with patient 3 retained."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_retain_3$plots$sleep_quality
+```
+
+#### Results
+
+**Patient characteristics:** A total of `r sensitivity_retain_3$n_patients` patients were included. The median age was `r sensitivity_retain_3$patient_characteristics$age` years, the median APACHE II score was `r sensitivity_retain_3$patient_characteristics$apache_ii` and median mechanical ventilation duration was `r sensitivity_retain_3$patient_characteristics$mechanical_ventilation` days, and median ICU stay was `r sensitivity_retain_3$patient_characteristics$icu_stay` days. The sex distribution was `r sensitivity_retain_3$patient_characteristics$sex`. Admission types were distributed as follows: `r sensitivity_retain_3$patient_characteristics$admission_types`.
+
+Within-patient differences between assessments with and without physiotherapy were evaluated using two-sided paired Wilcoxon signed-rank tests for total sleep time and sleep latency. Sleep latency was analyzed only among patients with observed latency in both assessments. Missing values were not imputed. Holm-adjusted p-values were calculated separately for this sensitivity analysis.
+
+```{r}
+#| results: asis
+
+knitr::asis_output(
+  x = sensitivity_retain_3$sleep_test_results_text
+)
+```
+
+```{r}
+knitr::kable(
+  x = sensitivity_retain_3$sleep_descriptive_statistics,
+  format = "pipe",
+  col.names = c(
+    "Sleep measure",
+    "Without physiotherapy",
+    "With physiotherapy"
+  ),
+  caption = "Sensitivity analysis: sleep summaries with patient 3 retained."
+)
+```
+
+```{r}
+knitr::kable(
+  x = sensitivity_retain_3$sleep_test_results_display,
+  format = "pipe",
+  col.names = c(
+    "Sleep measure",
+    "Complete pairs",
+    "Wilcoxon p-value",
+    "Holm-adjusted p-value"
+  ),
+  caption = "Sensitivity analysis: paired sleep tests with patient 3 retained."
+)
+```
+
+### Patients 2 and 3 excluded
+
+Patients 2 and 3 are excluded from every analysis dataset.
+
+#### Table 1
+
+```{r}
+knitr::kable(
+  x = sensitivity_exclude_2_and_3$table_1,
+  format = "pipe",
+  escape = FALSE,
+  col.names = c("Characteristic", "Descriptive statistics"),
+  caption = "Sensitivity analysis: descriptive characteristics excluding patients 2 and 3."
+)
+```
+
+#### Table 2
+
+```{r}
+knitr::kable(
+  x = sensitivity_exclude_2_and_3$table_2,
+  format = "pipe",
+  col.names = c("Patient status", "Descriptive statistics"),
+  caption = "Sensitivity analysis: patient clinical status excluding patients 2 and 3."
+)
+```
+
+#### Admission types
+
+```{r}
+#| label: fig-sensitivity-exclude-2-3-admission-type
+#| fig-cap: "Admission types excluding patients 2 and 3."
+#| fig-width: 8
+#| fig-height: 5
+#| dev: ragg_png
+
+sensitivity_exclude_2_and_3$plots$admission_type
+```
+
+#### Physiological assessments
+
+```{r}
+#| label: fig-sensitivity-exclude-2-3-ventilator-settings
+#| fig-cap: "Ventilator settings excluding patients 2 and 3."
+#| fig-width: 11
+#| fig-height: 9
+#| dev: ragg_png
+
+sensitivity_exclude_2_and_3$plots$ventilator_settings
+```
+
+```{r}
+#| label: fig-sensitivity-exclude-2-3-oxygenation
+#| fig-cap: "Oxygenation and gas exchange excluding patients 2 and 3."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_exclude_2_and_3$plots$oxygenation
+```
+
+```{r}
+#| label: fig-sensitivity-exclude-2-3-hemodynamics
+#| fig-cap: "Hemodynamic measurements excluding patients 2 and 3."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_exclude_2_and_3$plots$hemodynamics
+```
+
+```{r}
+#| label: fig-sensitivity-exclude-2-3-vital-signs
+#| fig-cap: "Heart rate and respiratory rate before and after physiotherapy excluding patients 2 and 3."
+#| fig-width: 10
+#| fig-height: 6
+#| dev: ragg_png
+
+sensitivity_exclude_2_and_3$plots$physiotherapy_vital_sign_pairs
+```
+
+#### Sleep assessments
+
+```{r}
+#| label: fig-sensitivity-exclude-2-3-sleep-timing
+#| fig-cap: "Sleep timing excluding patients 2 and 3."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_exclude_2_and_3$plots$sleep_timing
+```
+
+```{r}
+#| label: fig-sensitivity-exclude-2-3-sleep-total-time
+#| fig-cap: "Patient-level total sleep time excluding patients 2 and 3."
+#| fig-width: 8
+#| fig-height: 5
+#| dev: ragg_png
+
+sensitivity_exclude_2_and_3$plots$sleep_total_time_pairs
+```
+
+```{r}
+#| label: fig-sensitivity-exclude-2-3-sleep-latency
+#| fig-cap: "Patient-level sleep latency excluding patients 2 and 3."
+#| fig-width: 8
+#| fig-height: 5
+#| dev: ragg_png
+
+sensitivity_exclude_2_and_3$plots$sleep_latency_pairs
+```
+
+```{r}
+#| label: fig-sensitivity-exclude-2-3-sleep-stage-duration
+#| fig-cap: "Sleep-stage duration excluding patients 2 and 3."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_exclude_2_and_3$plots$sleep_stage_duration
+```
+
+```{r}
+#| label: fig-sensitivity-exclude-2-3-sleep-stage-composition
+#| fig-cap: "Sleep-stage composition excluding patients 2 and 3."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_exclude_2_and_3$plots$sleep_stage_composition
+```
+
+```{r}
+#| label: fig-sensitivity-exclude-2-3-sleep-quality
+#| fig-cap: "Sleep quality and arousal excluding patients 2 and 3."
+#| fig-width: 10
+#| fig-height: 8
+#| dev: ragg_png
+
+sensitivity_exclude_2_and_3$plots$sleep_quality
+```
+
+#### Results
+
+**Patient characteristics:** A total of `r sensitivity_exclude_2_and_3$n_patients` patients were included. The median age was `r sensitivity_exclude_2_and_3$patient_characteristics$age` years, the median APACHE II score was `r sensitivity_exclude_2_and_3$patient_characteristics$apache_ii` and median mechanical ventilation duration was `r sensitivity_exclude_2_and_3$patient_characteristics$mechanical_ventilation` days, and median ICU stay was `r sensitivity_exclude_2_and_3$patient_characteristics$icu_stay` days. The sex distribution was `r sensitivity_exclude_2_and_3$patient_characteristics$sex`. Admission types were distributed as follows: `r sensitivity_exclude_2_and_3$patient_characteristics$admission_types`.
+
+Within-patient differences between assessments with and without physiotherapy were evaluated using two-sided paired Wilcoxon signed-rank tests for total sleep time and sleep latency. Sleep latency was analyzed only among patients with observed latency in both assessments. Missing values were not imputed. Holm-adjusted p-values were calculated separately for this sensitivity analysis.
+
+```{r}
+#| results: asis
+
+knitr::asis_output(
+  x = sensitivity_exclude_2_and_3$sleep_test_results_text
+)
+```
+
+```{r}
+knitr::kable(
+  x = sensitivity_exclude_2_and_3$sleep_descriptive_statistics,
+  format = "pipe",
+  col.names = c(
+    "Sleep measure",
+    "Without physiotherapy",
+    "With physiotherapy"
+  ),
+  caption = "Sensitivity analysis: sleep summaries excluding patients 2 and 3."
+)
+```
+
+```{r}
+knitr::kable(
+  x = sensitivity_exclude_2_and_3$sleep_test_results_display,
+  format = "pipe",
+  col.names = c(
+    "Sleep measure",
+    "Complete pairs",
+    "Wilcoxon p-value",
+    "Holm-adjusted p-value"
+  ),
+  caption = "Sensitivity analysis: paired sleep tests excluding patients 2 and 3."
 )
 ```
