@@ -159,10 +159,11 @@ write_combined_plot <- function(
     recurse = TRUE
   )
 
+  # Fits standard A4/Letter content widths without Word downscaling.
   ragg::agg_png(
     filename = output_path,
-    width = 16,
-    height = 5,
+    width = 6.25,
+    height = 3.5,
     units = "in",
     res = 300
   )
