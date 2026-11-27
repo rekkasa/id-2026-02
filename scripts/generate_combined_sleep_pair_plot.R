@@ -88,7 +88,6 @@ make_paired_measurement_plot <- function(
     y_label,
     panel_label) {
   plot_title <- stringr::str_c(panel_label, ". ", title)
-  subtitle <- "Complete within-patient pairs; without physiotherapy first."
 
   if (nrow(x = data) == 0L) {
     return(
@@ -101,7 +100,6 @@ make_paired_measurement_plot <- function(
         ) +
         ggplot2::labs(
           title = plot_title,
-          subtitle = subtitle,
           x = NULL,
           y = y_label
         ) +
@@ -139,7 +137,6 @@ make_paired_measurement_plot <- function(
     ) +
     ggplot2::labs(
       title = plot_title,
-      subtitle = subtitle,
       x = NULL,
       y = y_label
     ) +
@@ -164,8 +161,8 @@ write_combined_plot <- function(
 
   ragg::agg_png(
     filename = output_path,
-    width = 8,
-    height = 10,
+    width = 16,
+    height = 5,
     units = "in",
     res = 300
   )
@@ -178,8 +175,8 @@ write_combined_plot <- function(
   grid::pushViewport(
     viewport = grid::viewport(
       layout = grid::grid.layout(
-        nrow = 2L,
-        ncol = 1L
+        nrow = 1L,
+        ncol = 2L
       )
     )
   )
@@ -193,8 +190,8 @@ write_combined_plot <- function(
   print(
     x = sleep_latency_plot,
     vp = grid::viewport(
-      layout.pos.row = 2L,
-      layout.pos.col = 1L
+      layout.pos.row = 1L,
+      layout.pos.col = 2L
     )
   )
   grid::popViewport()

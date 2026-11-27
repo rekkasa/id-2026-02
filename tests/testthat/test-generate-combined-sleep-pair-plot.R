@@ -64,7 +64,7 @@ testthat::test_that(
 )
 
 testthat::test_that(
-  desc = "paired plot labels panels and removes the legend title",
+  desc = "paired plots label panels without subtitles or legend titles",
   code = {
     paired_data <- tibble::tibble(
       patient_id = c("1", "1"),
@@ -95,6 +95,12 @@ testthat::test_that(
     testthat::expect_identical(
       object = sleep_latency_plot$labels$title,
       expected = "B. Sleep latency by patient"
+    )
+    testthat::expect_null(
+      object = total_sleep_plot$labels$subtitle
+    )
+    testthat::expect_null(
+      object = sleep_latency_plot$labels$subtitle
     )
     testthat::expect_null(
       object = total_sleep_plot$scales$scales[[1L]]$name
