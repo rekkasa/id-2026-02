@@ -99,6 +99,18 @@ testthat::test_that(
     testthat::expect_null(
       object = total_sleep_plot$scales$scales[[1L]]$name
     )
+    testthat::expect_identical(
+      object = total_sleep_plot$theme$axis.title$size,
+      expected = 14
+    )
+    testthat::expect_identical(
+      object = total_sleep_plot$theme$axis.text$size,
+      expected = 12
+    )
+    testthat::expect_identical(
+      object = total_sleep_plot$theme$legend.text$size,
+      expected = 12
+    )
   }
 )
 
