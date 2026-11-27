@@ -162,13 +162,14 @@ write_combined_plot <- function(
     recurse = TRUE
   )
 
-  # Fits standard A4/Letter content widths without Word downscaling.
-  ragg::agg_png(
+  # Exports an 8 cm-wide JPEG at 300 dpi (945 pixels) for submission.
+  ragg::agg_jpeg(
     filename = output_path,
-    width = 6.25,
-    height = 3.5,
-    units = "in",
-    res = 300
+    width = 945,
+    height = 591,
+    units = "px",
+    res = 300,
+    quality = 100
   )
   on.exit(
     expr = grDevices::dev.off(),
@@ -206,7 +207,7 @@ write_combined_plot <- function(
 main <- function(args = commandArgs(trailingOnly = TRUE)) {
   usage <- stringr::str_c(
     "Usage: Rscript scripts/generate_combined_sleep_pair_plot.R",
-    " <input.duckdb> <output.png>"
+    " <input.duckdb> <output.jpg>"
   )
 
   if (length(x = args) != 2L) {
@@ -233,8 +234,8 @@ main <- function(args = commandArgs(trailingOnly = TRUE)) {
 
   if (stringr::str_to_lower(
     string = fs::path_ext(path = output_path)
-  ) != "png") {
-    rlang::abort(message = "The output path must end in .png.")
+  ) != "jpg") {
+    rlang::abort(message = "The output path must end in .jpg.")
   }
 
   sleep_assessments <- read_sleep_assessments(

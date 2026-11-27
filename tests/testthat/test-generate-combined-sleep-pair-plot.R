@@ -125,7 +125,7 @@ testthat::test_that(
 )
 
 testthat::test_that(
-  desc = "combined paired plots are written as a non-empty PNG",
+  desc = "combined paired plots are written as a non-empty JPEG",
   code = {
     paired_data <- tibble::tibble(
       patient_id = c("1", "1"),
@@ -136,7 +136,7 @@ testthat::test_that(
         levels = c("Without physiotherapy", "With physiotherapy")
       )
     )
-    output_path <- fs::file_temp(ext = ".png")
+    output_path <- fs::file_temp(ext = ".jpg")
     on.exit(
       expr = {
         if (fs::file_exists(path = output_path)) {
@@ -169,6 +169,28 @@ testthat::test_that(
       object = fs::file_info(path = output_path)$size,
       expected = 0
     )
+    image_bytes <- readBin(
+      con = output_path,
+      what = "raw",
+      n = fs::file_info(path = output_path)$size
+    )
+    image_values <- as.integer(x = image_bytes)
+    frame_positions <- which(
+      image_values[-length(x = image_values)] == 255L &
+        image_values[-1L] == 192L
+    )
+    frame_position <- frame_positions[[1L]]
+    image_height <- image_values[[frame_position + 5L]] * 256L +
+      image_values[[frame_position + 6L]]
+    image_width <- image_values[[frame_position + 7L]] * 256L +
+      image_values[[frame_position + 8L]]
+
+    testthat::expect_identical(
+      object = image_bytes[1L:2L],
+      expected = as.raw(x = c(255, 216))
+    )
+    testthat::expect_identical(object = image_width, expected = 945L)
+    testthat::expect_identical(object = image_height, expected = 591L)
   }
 )
 
