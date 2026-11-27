@@ -125,6 +125,24 @@ testthat::test_that(
       object = total_sleep_plot$theme$legend.text$size,
       expected = 2.5
     )
+    testthat::expect_s3_class(
+      object = extract_legend_grob(plot = total_sleep_plot),
+      class = "gtable"
+    )
+    empty_plot <- make_paired_measurement_plot(
+      data = tibble::tibble(
+        patient_id = character(),
+        measurement = character(),
+        value = numeric(),
+        comparison = factor(character())
+      ),
+      title = "Total sleep time by patient",
+      y_label = "Total sleep time (min)",
+      panel_label = "A"
+    )
+    testthat::expect_null(
+      object = extract_legend_grob(plot = empty_plot)
+    )
   }
 )
 

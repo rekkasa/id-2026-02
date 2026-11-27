@@ -158,6 +158,21 @@ make_paired_measurement_plot <- function(
     )
 }
 
+extract_legend_grob <- function(plot) {
+  plot_grob <- ggplot2::ggplotGrob(x = plot)
+  legend_index <- match(
+    x = "guide-box-top",
+    table = plot_grob$layout$name
+  )
+  legend_grob <- plot_grob$grobs[[legend_index]]
+
+  if (inherits(x = legend_grob, what = "zeroGrob")) {
+    return(NULL)
+  }
+
+  legend_grob
+}
+
 write_combined_plot <- function(
     total_sleep_plot,
     sleep_latency_plot,
@@ -182,28 +197,70 @@ write_combined_plot <- function(
     add = TRUE
   )
 
+  shared_legend_grob <- extract_legend_grob(plot = total_sleep_plot)
+  if (is.null(shared_legend_grob)) {
+    shared_legend_grob <- extract_legend_grob(plot = sleep_latency_plot)
+  }
+  total_sleep_plot <- total_sleep_plot +
+    ggplot2::theme(legend.position = "none")
+  sleep_latency_plot <- sleep_latency_plot +
+    ggplot2::theme(legend.position = "none")
+
   grid::grid.newpage()
-  grid::pushViewport(
-    viewport = grid::viewport(
-      layout = grid::grid.layout(
-        nrow = 1L,
-        ncol = 2L
+  if (is.null(shared_legend_grob)) {
+    grid::pushViewport(
+      viewport = grid::viewport(
+        layout = grid::grid.layout(
+          nrow = 1L,
+          ncol = 2L
+        )
       )
     )
-  )
-  print(
-    x = total_sleep_plot,
-    vp = grid::viewport(
+    total_sleep_viewport <- grid::viewport(
       layout.pos.row = 1L,
       layout.pos.col = 1L
     )
-  )
-  print(
-    x = sleep_latency_plot,
-    vp = grid::viewport(
+    sleep_latency_viewport <- grid::viewport(
       layout.pos.row = 1L,
       layout.pos.col = 2L
     )
+  } else {
+    grid::pushViewport(
+      viewport = grid::viewport(
+        layout = grid::grid.layout(
+          nrow = 2L,
+          ncol = 2L,
+          heights = grid::unit(
+            x = c(1, 9),
+            units = "null"
+          )
+        )
+      )
+    )
+    grid::pushViewport(
+      viewport = grid::viewport(
+        layout.pos.row = 1L,
+        layout.pos.col = 1L:2L
+      )
+    )
+    grid::grid.draw(x = shared_legend_grob)
+    grid::popViewport()
+    total_sleep_viewport <- grid::viewport(
+      layout.pos.row = 2L,
+      layout.pos.col = 1L
+    )
+    sleep_latency_viewport <- grid::viewport(
+      layout.pos.row = 2L,
+      layout.pos.col = 2L
+    )
+  }
+  print(
+    x = total_sleep_plot,
+    vp = total_sleep_viewport
+  )
+  print(
+    x = sleep_latency_plot,
+    vp = sleep_latency_viewport
   )
   grid::popViewport()
 
