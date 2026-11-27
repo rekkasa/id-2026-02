@@ -110,16 +110,20 @@ testthat::test_that(
       expected = 1L
     )
     testthat::expect_identical(
+      object = total_sleep_plot$theme$plot.title$size,
+      expected = 5
+    )
+    testthat::expect_identical(
       object = total_sleep_plot$theme$axis.title$size,
-      expected = 10
+      expected = 4
     )
     testthat::expect_identical(
       object = total_sleep_plot$theme$axis.text$size,
-      expected = 8
+      expected = 3
     )
     testthat::expect_identical(
       object = total_sleep_plot$theme$legend.text$size,
-      expected = 6
+      expected = 2.5
     )
   }
 )

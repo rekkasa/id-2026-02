@@ -103,7 +103,12 @@ make_paired_measurement_plot <- function(
           x = NULL,
           y = y_label
         ) +
-        ggplot2::theme_minimal(base_size = 10)
+        ggplot2::theme_minimal(base_size = 5) +
+        ggplot2::theme(
+          plot.title = ggplot2::element_text(size = 5),
+          axis.title = ggplot2::element_text(size = 4),
+          axis.text = ggplot2::element_text(size = 3)
+        )
     )
   }
 
@@ -143,11 +148,12 @@ make_paired_measurement_plot <- function(
     ggplot2::guides(
       color = ggplot2::guide_legend(nrow = 1L)
     ) +
-    ggplot2::theme_minimal(base_size = 10) +
+    ggplot2::theme_minimal(base_size = 5) +
     ggplot2::theme(
-      axis.title = ggplot2::element_text(size = 10),
-      axis.text = ggplot2::element_text(size = 8),
-      legend.text = ggplot2::element_text(size = 6),
+      plot.title = ggplot2::element_text(size = 5),
+      axis.title = ggplot2::element_text(size = 4),
+      axis.text = ggplot2::element_text(size = 3),
+      legend.text = ggplot2::element_text(size = 2.5),
       legend.position = "top"
     )
 }
