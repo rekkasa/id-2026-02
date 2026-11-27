@@ -103,7 +103,7 @@ make_paired_measurement_plot <- function(
           x = NULL,
           y = y_label
         ) +
-        ggplot2::theme_minimal(base_size = 14)
+        ggplot2::theme_minimal(base_size = 10)
     )
   }
 
@@ -140,11 +140,11 @@ make_paired_measurement_plot <- function(
       x = NULL,
       y = y_label
     ) +
-    ggplot2::theme_minimal(base_size = 14) +
+    ggplot2::theme_minimal(base_size = 10) +
     ggplot2::theme(
-      axis.title = ggplot2::element_text(size = 14),
-      axis.text = ggplot2::element_text(size = 12),
-      legend.text = ggplot2::element_text(size = 12),
+      axis.title = ggplot2::element_text(size = 10),
+      axis.text = ggplot2::element_text(size = 8),
+      legend.text = ggplot2::element_text(size = 8),
       legend.position = "top"
     )
 }
