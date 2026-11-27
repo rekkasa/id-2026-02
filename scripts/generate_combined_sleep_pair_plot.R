@@ -161,8 +161,8 @@ write_combined_plot <- function(
 
   ragg::agg_png(
     filename = output_path,
-    width = 16,
-    height = 5,
+    width = 8,
+    height = 10,
     units = "in",
     res = 300
   )
@@ -175,8 +175,8 @@ write_combined_plot <- function(
   grid::pushViewport(
     viewport = grid::viewport(
       layout = grid::grid.layout(
-        nrow = 1L,
-        ncol = 2L
+        nrow = 2L,
+        ncol = 1L
       )
     )
   )
@@ -190,8 +190,8 @@ write_combined_plot <- function(
   print(
     x = sleep_latency_plot,
     vp = grid::viewport(
-      layout.pos.row = 1L,
-      layout.pos.col = 2L
+      layout.pos.row = 2L,
+      layout.pos.col = 1L
     )
   )
   grid::popViewport()
