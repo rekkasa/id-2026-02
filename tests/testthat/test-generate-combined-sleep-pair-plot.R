@@ -106,7 +106,7 @@ testthat::test_that(
       object = total_sleep_plot$scales$scales[[1L]]$name
     )
     testthat::expect_identical(
-      object = total_sleep_plot$guides$guides[["colour"]]$params$ncol,
+      object = total_sleep_plot$guides$guides[["colour"]]$params$nrow,
       expected = 1L
     )
     testthat::expect_identical(
@@ -119,7 +119,7 @@ testthat::test_that(
     )
     testthat::expect_identical(
       object = total_sleep_plot$theme$legend.text$size,
-      expected = 8
+      expected = 6
     )
   }
 )
