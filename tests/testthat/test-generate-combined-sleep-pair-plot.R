@@ -106,6 +106,10 @@ testthat::test_that(
       object = total_sleep_plot$scales$scales[[1L]]$name
     )
     testthat::expect_identical(
+      object = total_sleep_plot$guides$guides[["colour"]]$params$ncol,
+      expected = 1L
+    )
+    testthat::expect_identical(
       object = total_sleep_plot$theme$axis.title$size,
       expected = 10
     )

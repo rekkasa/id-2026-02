@@ -140,6 +140,9 @@ make_paired_measurement_plot <- function(
       x = NULL,
       y = y_label
     ) +
+    ggplot2::guides(
+      color = ggplot2::guide_legend(ncol = 1L)
+    ) +
     ggplot2::theme_minimal(base_size = 10) +
     ggplot2::theme(
       axis.title = ggplot2::element_text(size = 10),
